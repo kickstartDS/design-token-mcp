@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "design-tokens": {
+      "command": "node",
+      "args": ["/absolute/path/to/design-tokens-mcp/index.js"],
+      "description": "Design tokens server for managing CSS Custom Properties"
+    }
+  }
+}
