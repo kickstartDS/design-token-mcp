@@ -1,6 +1,6 @@
 {
   "name": "@kickstartds/design-token-mcp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "main": "index.js",
   "bin": {
@@ -14,11 +14,12 @@
     "mcp",
     "design-tokens",
     "css-custom-properties",
-    "design-system"
+    "design-system",
+    "scss"
   ],
   "author": "",
   "license": "ISC",
-  "description": "MCP server for managing design tokens from CSS Custom Properties",
+  "description": "MCP server for managing design tokens from CSS/SCSS Custom Properties",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3"
   }

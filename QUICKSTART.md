@@ -8,13 +8,7 @@
    npm install
    ```
 
-2. **Make the server executable (optional):**
-
-   ```bash
-   chmod +x index.js
-   ```
-
-3. **Test the server:**
+2. **Test the server:**
    ```bash
    npm start
    ```
@@ -43,43 +37,67 @@
 
 4. Restart Claude Desktop
 
-### For Other MCP Clients
-
-Use the configuration from `mcp-config-example.json` and adjust the path accordingly.
-
 ## Usage Examples
 
 Once connected to an MCP client (like Claude), you can use natural language:
 
-### Get a Specific Token
+### Explore the Token System
+
+- "List all token files"
+- "Show me token statistics"
+- "What branding tokens are available?"
+
+### Get Specific Tokens
 
 - "What's the value of the primary brand color?"
 - "Show me the ks-brand-color-primary token"
 
-### List Tokens
+### List and Filter Tokens
 
 - "List all color tokens"
-- "Show me all available design tokens"
-- "What font tokens are available?"
+- "Show tokens from the spacing file"
+- "List tokens with prefix ks-background-color"
 
 ### Search Tokens
 
 - "Find all tokens with 'primary' in the name"
 - "Search for tokens with the value '#3065c0'"
-- "Show tokens related to spacing"
+- "Show tokens related to hover states"
+
+### Domain-Specific Queries
+
+- "Show the color palette for primary colors"
+- "Get all typography tokens for display fonts"
+- "List spacing tokens for size 'm'"
+- "Find all interactive state tokens"
 
 ### Update Tokens
 
 - "Change the primary color to #4075d0"
 - "Update ks-brand-color-bg to #f5f5f5"
-- "Set the border radius to 10px"
+
+## Available Tools (11 total)
+
+| Tool                    | Purpose                                               |
+| ----------------------- | ----------------------------------------------------- |
+| `get_token`             | Get a specific token's value                          |
+| `list_tokens`           | List tokens with filters (file, category, prefix)     |
+| `list_files`            | Show all token files with counts                      |
+| `get_token_stats`       | Get token distribution statistics                     |
+| `search_tokens`         | Search by pattern in names/values                     |
+| `get_tokens_by_type`    | Filter by semantic type (interactive, inverted, etc.) |
+| `get_color_palette`     | Get colors by type (primary, positive, etc.)          |
+| `get_typography_tokens` | Get font-related tokens                               |
+| `get_spacing_tokens`    | Get spacing tokens by size/type                       |
+| `get_branding_tokens`   | Get core editable brand tokens                        |
+| `update_token`          | Modify a token value                                  |
 
 ## Verifying It Works
 
 After configuration, ask your MCP client:
-"List all design tokens with 'color' in the name"
+"List all token files with their token counts"
 
-If successful, you'll see a JSON response with all matching color tokens.
+If successful, you'll see a JSON response with all 12 token files and their statistics.
 
 ## Troubleshooting
 
@@ -87,7 +105,6 @@ If successful, you'll see a JSON response with all matching color tokens.
 
 - Verify Node.js version: `node --version` (needs 16+)
 - Check dependencies: `npm install`
-- Verify file permissions: `chmod +x index.js`
 
 ### MCP client can't connect
 
@@ -95,23 +112,19 @@ If successful, you'll see a JSON response with all matching color tokens.
 - Ensure the config file is valid JSON
 - Restart your MCP client after configuration changes
 
-### Token file not found
+### Token not found
 
-- Verify `tokens/branding-token.css` exists
-- Check file permissions
+- Use `search_tokens` to find similar tokens
+- Check for typos in token names
+- Use `list_files` to see which file might contain it
 
 ### Changes not persisting
 
-- Verify write permissions on `tokens/branding-token.css`
+- Verify write permissions on token files
 - Check for file system errors in the server logs
 
 ## Next Steps
 
-- Explore all four tools: get_token, list_tokens, search_tokens, update_token
-- Try different search patterns and filters
-- Modify token values and verify changes in the CSS file
-- Consider extending the server to support multiple token files
-
-## Support
-
-For issues or questions, refer to the main README.md file for detailed documentation.
+- Explore the token architecture in the README
+- Try different semantic type queries
+- Modify branding tokens and see how derived tokens change

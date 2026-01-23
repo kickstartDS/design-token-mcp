@@ -1,15 +1,34 @@
 # Design Tokens MCP Server
 
-A production-ready Model Context Protocol (MCP) server for managing CSS Custom Properties (design tokens). This server enables AI assistants and other MCP clients to read, query, search, and update design tokens from CSS files.
+A production-ready Model Context Protocol (MCP) server for managing CSS Custom Properties (design tokens). This server enables AI assistants and other MCP clients to read, query, search, and update design tokens from CSS/SCSS files.
 
 ## Features
 
-- 📖 **Read CSS Custom Properties** - Automatically parses CSS files to extract all design tokens
-- 🔍 **Query Specific Tokens** - Retrieve individual token values by name
-- 📋 **List All Tokens** - View all available tokens with optional category filtering
-- 🔎 **Search Functionality** - Find tokens by name or value patterns
-- ✏️ **Update Tokens** - Modify token values and persist changes back to CSS files
-- ⚡ **Production-Ready** - Comprehensive error handling and validation
+- 📖 **Multi-file Support** - Reads tokens from multiple CSS and SCSS files
+- 🔍 **Advanced Querying** - Filter by file, category, prefix, or semantic type
+- 📊 **Statistics** - Get token counts and distribution across files
+- 🎨 **Color Palette Tools** - Dedicated tools for color tokens with scale support
+- ✏️ **Typography Tools** - Query font families, weights, sizes, and line heights
+- 📐 **Spacing Tools** - Get spacing tokens by size or type
+- 🔄 **Update Tokens** - Modify token values and persist changes
+- ⚡ **Pagination** - Handle large token sets efficiently
+
+## Supported Token Files
+
+| File                          | Description                                     | Category         |
+| ----------------------------- | ----------------------------------------------- | ---------------- |
+| `branding-token.css`          | Core brand tokens (colors, fonts, spacing base) | branding         |
+| `color-token.scss`            | Derived color tokens with scales and mixing     | color            |
+| `background-color-token.scss` | Background colors for UI states                 | background-color |
+| `text-color-token.scss`       | Text/foreground colors                          | text-color       |
+| `border-color-token.scss`     | Border colors for UI states                     | border-color     |
+| `border-token.scss`           | Border width and radius                         | border           |
+| `font-token.scss`             | Font families, weights, line heights            | font             |
+| `font-size-token.scss`        | Font size scales with responsive calculations   | font-size        |
+| `spacing-token.scss`          | Spacing scales for margins/padding              | spacing          |
+| `box-shadow-token.scss`       | Box shadow tokens for elevation                 | box-shadow       |
+| `transition-token.scss`       | Animation timing and duration                   | transition       |
+| `scaling-token.scss`          | Scaling factors for responsive design           | scaling          |
 
 ## Installation
 
@@ -25,16 +44,9 @@ npm install
 npm start
 ```
 
-Or make the file executable and run directly:
-
-```bash
-chmod +x index.js
-./index.js
-```
-
 ### MCP Client Configuration
 
-Add this server to your MCP client configuration (e.g., Claude Desktop):
+Add to your MCP client configuration (e.g., Claude Desktop):
 
 ```json
 {
@@ -47,113 +59,126 @@ Add this server to your MCP client configuration (e.g., Claude Desktop):
 }
 ```
 
-## Available Tools
+## Available Tools (11 total)
 
-### 1. `get_token`
+### Core Tools
 
-Retrieve the value of a specific design token.
+#### `get_token`
 
-**Parameters:**
-
-- `name` (string, required): Token name with or without `--` prefix
-
-**Example:**
+Retrieve a specific token by name with its source file and category.
 
 ```json
-{
-  "name": "ks-brand-color-primary"
-}
+{ "name": "ks-brand-color-primary" }
 ```
 
-**Response:**
+#### `list_tokens`
+
+List tokens with filtering and pagination.
 
 ```json
 {
-  "token": "--ks-brand-color-primary",
-  "value": "#3065c0"
-}
-```
-
-### 2. `list_tokens`
-
-List all available design tokens with optional filtering.
-
-**Parameters:**
-
-- `category` (string, optional): Filter by category (e.g., "color", "font", "spacing")
-
-**Example:**
-
-```json
-{
-  "category": "color"
-}
-```
-
-**Response:**
-
-```json
-{
-  "totalTokens": 25,
+  "file": "branding",
   "category": "color",
-  "tokens": [
-    {
-      "name": "--ks-brand-color-primary",
-      "value": "#3065c0"
-    },
-    ...
-  ]
+  "prefix": "ks-brand",
+  "limit": 50,
+  "offset": 0
 }
 ```
 
-### 3. `search_tokens`
+#### `list_files`
 
-Search for tokens by pattern in names or values.
+List all token files with descriptions and token counts.
 
-**Parameters:**
+#### `get_token_stats`
 
-- `pattern` (string, required): Search pattern (case-insensitive)
-- `searchIn` (string, optional): Where to search - "name", "value", or "both" (default: "both")
+Get statistics: total tokens, counts by file, category, and prefix.
 
-**Example:**
+#### `search_tokens`
 
-```json
-{
-  "pattern": "primary",
-  "searchIn": "name"
-}
-```
-
-**Response:**
+Search tokens by pattern in names or values.
 
 ```json
 {
   "pattern": "primary",
   "searchIn": "name",
-  "totalMatches": 2,
-  "results": [
-    {
-      "name": "--ks-brand-color-primary",
-      "value": "#3065c0"
-    },
-    {
-      "name": "--ks-brand-color-primary-inverted",
-      "value": "#3065c0"
-    }
-  ]
+  "file": "color",
+  "limit": 50
 }
 ```
 
-### 4. `update_token`
+### Semantic Type Tools
 
-Update a token value and save changes to the CSS file.
+#### `get_tokens_by_type`
 
-**Parameters:**
+Get tokens by semantic type:
 
-- `name` (string, required): Token name to update
-- `value` (string, required): New value for the token
+- `interactive` - hover, active, selected, disabled states
+- `inverted` - dark mode variants
+- `scale` - alpha/mixing scale variants
+- `base` - base tokens
+- `responsive` - breakpoint-specific tokens
+- `sizing` - size scale tokens (xxs-xxl)
 
-**Example:**
+```json
+{ "type": "interactive", "file": "background-color" }
+```
+
+### Domain-Specific Tools
+
+#### `get_color_palette`
+
+Get color tokens organized by type.
+
+```json
+{
+  "colorType": "primary",
+  "includeScales": true
+}
+```
+
+Color types: `primary`, `positive`, `negative`, `informative`, `notice`, `fg`, `bg`, `link`
+
+#### `get_typography_tokens`
+
+Get typography tokens filtered by font type or property.
+
+```json
+{
+  "fontType": "display",
+  "property": "size"
+}
+```
+
+Font types: `display`, `copy`, `interface`, `mono`
+Properties: `family`, `weight`, `size`, `line-height`
+
+#### `get_spacing_tokens`
+
+Get spacing tokens by size or type.
+
+```json
+{
+  "size": "m",
+  "type": "stack"
+}
+```
+
+Sizes: `xxs`, `xs`, `s`, `m`, `l`, `xl`, `xxl`
+Types: `stack`, `inline`, `inset`, `base`
+
+#### `get_branding_tokens`
+
+Get core branding tokens (the primary tokens to modify for theming).
+
+```json
+{ "type": "colors" }
+```
+
+Types: `colors`, `fonts`, `spacing`, `borders`, `shadows`, `all`
+
+#### `update_token`
+
+Update a token value in its source file.
 
 ```json
 {
@@ -162,87 +187,69 @@ Update a token value and save changes to the CSS file.
 }
 ```
 
-**Response:**
+## Token Architecture
 
-```json
-{
-  "success": true,
-  "message": "Token updated successfully",
-  "token": "--ks-brand-color-primary",
-  "oldValue": "#3065c0",
-  "newValue": "#4075d0"
-}
+The design token system follows a layered architecture:
+
+1. **Branding Tokens** (`branding-token.css`)
+   - Core values: primary colors, font families, base sizes
+   - These are the tokens to modify for theming
+
+2. **Derived Tokens** (SCSS files)
+   - Computed from branding tokens using `var()` references
+   - Include scales, states, and responsive variants
+
+3. **Semantic Tokens**
+   - Purpose-specific tokens (background, text, border colors)
+   - Interactive states (hover, active, selected, disabled)
+   - Inverted variants for dark mode
+
+## Example Workflows
+
+### Get an overview of the token system
+
+```
+1. list_files → See all token files with counts
+2. get_token_stats → See distribution by category
 ```
 
-## Token File Structure
+### Find and modify a brand color
 
-The server reads from `tokens/branding-token.css` which contains CSS Custom Properties:
+```
+1. get_branding_tokens { type: "colors" } → See editable colors
+2. update_token { name: "ks-brand-color-primary", value: "#new-color" }
+```
 
-```css
-:root {
-  --ks-brand-color-primary: #3065c0;
-  --ks-brand-color-bg: #fff;
-  --ks-brand-font-family-display: Montserrat, Baskerville, serif;
-  /* ... more tokens */
-}
+### Explore the color system
+
+```
+1. get_color_palette { colorType: "primary" } → See primary colors
+2. get_color_palette { colorType: "primary", includeScales: true } → With alpha scales
+```
+
+### Query interactive states
+
+```
+1. get_tokens_by_type { type: "interactive", file: "background-color" }
 ```
 
 ## Error Handling
 
-The server includes comprehensive error handling for:
-
-- Missing or inaccessible token files
-- Invalid token names
-- File write failures
-- Malformed requests
-- Non-existent tokens
-
-All errors are returned in a consistent JSON format:
+All errors return consistent JSON:
 
 ```json
 {
-  "error": "Error message description",
+  "error": "Error message",
   "tool": "tool_name",
-  "timestamp": "2026-01-21T12:00:00.000Z"
+  "timestamp": "2026-01-22T12:00:00.000Z"
 }
 ```
 
-## Token Categories
-
-The design tokens are organized by category:
-
-- **Colors**: Primary, background, foreground, semantic colors
-- **Typography**: Font families, weights, sizes
-- **Spacing**: Base spacing and scale factors
-- **Borders**: Width, radius
-- **Shadows**: Blur values
-
-## Development
-
-### Project Structure
-
-```
-design-tokens-mcp/
-├── index.js                 # Main MCP server
-├── package.json            # Node.js configuration
-├── README.md              # Documentation
-└── tokens/
-    └── branding-token.css # Design token definitions
-```
-
-### Adding New Token Files
-
-To support multiple token files, modify the `TOKENS_FILE` constant in `index.js` or extend the parsing logic to read from multiple files.
-
 ## Requirements
 
-- Node.js 16+ (for ES modules support)
+- Node.js 16+ (ES modules support)
 - @modelcontextprotocol/sdk ^1.25.3
 
 ## License
 
 ISC
-
-## Contributing
-
-Contributions are welcome! Please ensure all changes include proper error handling and maintain the existing code style.
