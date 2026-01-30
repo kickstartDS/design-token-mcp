@@ -19,10 +19,10 @@
 [ks-theme],
 [ks-inverted="false"],
 [ks-inverted="true"] {
-  --ks-spacing-xxs-base: calc(var(--ks-spacing-xs-base) * calc(var(--ks-scale-spacing-shrink-factor) * 1));
-  --ks-spacing-xs-base: calc(var(--ks-spacing-s-base) * calc(var(--ks-scale-spacing-shrink-factor) * 1));
-  --ks-spacing-s-base: calc(var(--ks-spacing-m-base) * calc(var(--ks-scale-spacing-shrink-factor) * 1));
-  --ks-spacing-m-base: var(--ks-brand-spacing-base);
+  --ks-spacing-xxs-base: calc(var(--ks-spacing-xs-base) * var(--ks-scale-spacing-shrink-factor));
+  --ks-spacing-xs-base: calc(var(--ks-spacing-s-base) * var(--ks-scale-spacing-shrink-factor));
+  --ks-spacing-s-base: calc(var(--ks-spacing-m-base) * var(--ks-scale-spacing-shrink-factor));
+  --ks-spacing-m-base: calc((var(--ks-brand-spacing-factor) - 0.5) * var(--ks-font-size-copy-m));
   --ks-spacing-l-base: calc(var(--ks-spacing-m-base) * var(--ks-scale-spacing-grow-factor));
   --ks-spacing-xl-base: calc(var(--ks-spacing-l-base) * var(--ks-scale-spacing-grow-factor));
   --ks-spacing-xxl-base: calc(var(--ks-spacing-xl-base) * var(--ks-scale-spacing-grow-factor));

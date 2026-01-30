@@ -14,13 +14,22 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const TOKENS_DIR = path.join(__dirname, "tokens");
+const BRANDING_JSON_FILE = path.join(TOKENS_DIR, "branding-token.json");
 
 // Token file categories with metadata
 const TOKEN_FILES = {
   branding: {
-    file: "branding-token.css",
-    description: "Core brand tokens (colors, fonts, spacing base values)",
+    file: "branding-tokens.css",
+    description:
+      "Core brand CSS custom properties (colors, fonts, spacing, factors)",
     category: "branding",
+  },
+  "branding-json": {
+    file: "branding-token.json",
+    description:
+      "Structured JSON theme configuration (editable source of truth)",
+    category: "branding-config",
+    isJson: true,
   },
   color: {
     file: "color-token.scss",
@@ -80,30 +89,245 @@ const TOKEN_FILES = {
 };
 
 /**
- * Parse a single CSS/SCSS file and extract all CSS Custom Properties
+ * Read the JSON branding configuration
+ * @returns {Promise<Object>}
+ */
+async function readBrandingJson() {
+  try {
+    const content = await fs.readFile(BRANDING_JSON_FILE, "utf-8");
+    return JSON.parse(content);
+  } catch (error) {
+    throw new Error(`Failed to read branding JSON: ${error.message}`);
+  }
+}
+
+/**
+ * Write the JSON branding configuration
+ * @param {Object} config - The configuration object
+ * @returns {Promise<void>}
+ */
+async function writeBrandingJson(config) {
+  try {
+    const content = JSON.stringify(config, null, 2);
+    await fs.writeFile(BRANDING_JSON_FILE, content, "utf-8");
+  } catch (error) {
+    throw new Error(`Failed to write branding JSON: ${error.message}`);
+  }
+}
+
+/**
+ * Get a nested value from an object using dot notation path
+ * @param {Object} obj
+ * @param {string} path - e.g., "color.primary" or "font.display.family"
+ * @returns {*}
+ */
+function getNestedValue(obj, path) {
+  return path.split(".").reduce((current, key) => current?.[key], obj);
+}
+
+/**
+ * Set a nested value in an object using dot notation path
+ * @param {Object} obj
+ * @param {string} path
+ * @param {*} value
+ */
+function setNestedValue(obj, path, value) {
+  const keys = path.split(".");
+  const lastKey = keys.pop();
+  const target = keys.reduce((current, key) => {
+    if (!(key in current)) current[key] = {};
+    return current[key];
+  }, obj);
+  target[lastKey] = value;
+}
+
+/**
+ * Flatten JSON object to dot notation paths
+ * @param {Object} obj
+ * @param {string} prefix
+ * @returns {Array<{path: string, value: *, type: string}>}
+ */
+function flattenJsonConfig(obj, prefix = "") {
+  const results = [];
+  for (const [key, value] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      results.push(...flattenJsonConfig(value, path));
+    } else {
+      results.push({
+        path,
+        value,
+        type: typeof value,
+      });
+    }
+  }
+  return results;
+}
+
+/**
+ * Get a human-readable description for factor tokens
+ * @param {string} tokenName - The token name
+ * @returns {string}
+ */
+function getFactorDescription(tokenName) {
+  const descriptions = {
+    "duration-factor": "Multiplier for animation/transition durations",
+    "border-radius-factor": "Multiplier for border radius values",
+    "box-shadow-blur-factor": "Multiplier for box shadow blur radius",
+    "box-shadow-opacity-factor": "Multiplier for box shadow opacity",
+    "box-shadow-spread-factor": "Multiplier for box shadow spread radius",
+    "spacing-factor": "Multiplier for spacing values",
+    "scale-ratio": "Base ratio for typographic/spacing scales",
+    "bp-factor": "Breakpoint factor for responsive scaling",
+    "bp-ratio": "Breakpoint ratio for responsive calculations",
+  };
+
+  for (const [key, desc] of Object.entries(descriptions)) {
+    if (tokenName.toLowerCase().includes(key.toLowerCase())) {
+      return desc;
+    }
+  }
+  return "Factor/ratio token for calculations";
+}
+
+/**
+ * Parse a single CSS/SCSS file and extract all CSS Custom Properties with comments
  * @param {string} filePath - Path to the token file
  * @param {string} category - Category name for the tokens
- * @returns {Promise<Map<string, {value: string, file: string, category: string}>>}
+ * @returns {Promise<Map<string, {value: string, file: string, category: string, comment?: string, section?: string}>>}
  */
 async function parseTokenFile(filePath, category) {
   try {
     const content = await fs.readFile(filePath, "utf-8");
     const tokens = new Map();
     const fileName = path.basename(filePath);
+    const lines = content.split("\n");
 
-    // Regular expression to match CSS custom properties
-    // Handles multiline values and SCSS comments
-    const tokenRegex = /--([a-zA-Z0-9-]+)\s*:\s*([^;]+);/g;
+    let currentSection = null;
+    let pendingComments = [];
+    let inBlockComment = false;
+    let blockCommentLines = [];
 
-    let match;
-    while ((match = tokenRegex.exec(content)) !== null) {
-      const tokenName = `--${match[1]}`;
-      const tokenValue = match[2].trim().replace(/\s+/g, " "); // Normalize whitespace
-      tokens.set(tokenName, {
-        value: tokenValue,
-        file: fileName,
-        category: category,
-      });
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmedLine = line.trim();
+
+      // Handle block comment start
+      if (trimmedLine.startsWith("/*") && !trimmedLine.includes("*/")) {
+        inBlockComment = true;
+        const commentStart = trimmedLine.replace(/^\/\*\s*/, "").trim();
+        if (commentStart) {
+          blockCommentLines.push(commentStart);
+        }
+        continue;
+      }
+
+      // Handle block comment continuation
+      if (inBlockComment) {
+        if (trimmedLine.includes("*/")) {
+          inBlockComment = false;
+          const commentEnd = trimmedLine
+            .replace(/\*\/.*$/, "")
+            .replace(/^\*\s*/, "")
+            .trim();
+          if (commentEnd) {
+            blockCommentLines.push(commentEnd);
+          }
+          // Add accumulated block comment to pending comments
+          if (blockCommentLines.length > 0) {
+            pendingComments.push(blockCommentLines.join(" "));
+          }
+          blockCommentLines = [];
+          continue;
+        } else {
+          // Middle of block comment
+          const commentMiddle = trimmedLine.replace(/^\*\s*/, "").trim();
+          if (commentMiddle) {
+            blockCommentLines.push(commentMiddle);
+          }
+          continue;
+        }
+      }
+
+      // Handle single-line block comments /* ... */
+      const singleLineBlockMatch = trimmedLine.match(/^\/\*\s*(.+?)\s*\*\/$/);
+      if (singleLineBlockMatch) {
+        pendingComments.push(singleLineBlockMatch[1]);
+        continue;
+      }
+
+      // Check for section headers (/// or // ALL CAPS or // Title Case followed by newline)
+      if (trimmedLine.startsWith("///")) {
+        currentSection = trimmedLine.replace(/^\/\/\/\s*/, "").trim();
+        pendingComments = []; // Section header resets pending comments
+        continue;
+      }
+
+      // Check for regular comments (could be inline documentation)
+      if (trimmedLine.startsWith("//") && !trimmedLine.startsWith("///")) {
+        const commentText = trimmedLine.replace(/^\/\/\s*/, "").trim();
+        if (commentText) {
+          pendingComments.push(commentText);
+        }
+        continue;
+      }
+
+      // Check for CSS custom property definition
+      const tokenMatch = line.match(/--([a-zA-Z0-9-]+)\s*:\s*([^;]+);/);
+      if (tokenMatch) {
+        const tokenName = `--${tokenMatch[1]}`;
+        const tokenValue = tokenMatch[2].trim().replace(/\s+/g, " ");
+
+        // Check for inline comment after the value (both // and /* */)
+        const inlineSlashComment = line.match(/;\s*\/\/\s*(.+)$/);
+        const inlineBlockComment = line.match(/;\s*\/\*\s*(.+?)\s*\*\/\s*$/);
+        let inlineComment = inlineSlashComment
+          ? inlineSlashComment[1].trim()
+          : inlineBlockComment
+            ? inlineBlockComment[1].trim()
+            : null;
+
+        // Build the token data
+        const tokenData = {
+          value: tokenValue,
+          file: fileName,
+          category: category,
+        };
+
+        // Add section if available
+        if (currentSection) {
+          tokenData.section = currentSection;
+        }
+
+        // Combine pending comments and inline comment
+        const allComments = [...pendingComments];
+        if (inlineComment) {
+          allComments.push(inlineComment);
+        }
+
+        if (allComments.length > 0) {
+          tokenData.comment = allComments.join(" | ");
+        }
+
+        tokens.set(tokenName, tokenData);
+        pendingComments = []; // Reset pending comments after token
+      }
+
+      // Reset pending comments if we hit a non-comment, non-token line (like a selector)
+      if (
+        !trimmedLine.startsWith("//") &&
+        !trimmedLine.startsWith("/*") &&
+        !trimmedLine.includes("--") &&
+        trimmedLine.length > 0 &&
+        !trimmedLine.startsWith("{") &&
+        !trimmedLine.startsWith("}")
+      ) {
+        // Don't reset on empty lines or braces, but reset on selectors
+        if (trimmedLine.includes(":root") || trimmedLine.includes("[ks-")) {
+          // Keep section, but reset inline comments for new block
+          pendingComments = [];
+        }
+      }
     }
 
     return tokens;
@@ -238,17 +462,22 @@ function searchTokens(tokens, pattern, searchIn = "both") {
   for (const [name, data] of tokens.entries()) {
     const matchName = searchIn === "both" || searchIn === "name";
     const matchValue = searchIn === "both" || searchIn === "value";
+    const matchComment = searchIn === "both" && data.comment;
 
     const nameMatches = matchName && name.toLowerCase().includes(lowerPattern);
     const valueMatches =
       matchValue && data.value.toLowerCase().includes(lowerPattern);
+    const commentMatches =
+      matchComment && data.comment.toLowerCase().includes(lowerPattern);
 
-    if (nameMatches || valueMatches) {
+    if (nameMatches || valueMatches || commentMatches) {
       results.push({
         name,
         value: data.value,
         file: data.file,
         category: data.category,
+        ...(data.section && { section: data.section }),
+        ...(data.comment && { comment: data.comment }),
       });
     }
   }
@@ -283,6 +512,8 @@ function getTokensBySemanticType(tokens, semanticType) {
         value: data.value,
         file: data.file,
         category: data.category,
+        ...(data.section && { section: data.section }),
+        ...(data.comment && { comment: data.comment }),
       });
     }
   }
@@ -294,7 +525,7 @@ function getTokensBySemanticType(tokens, semanticType) {
 const server = new Server(
   {
     name: "design-tokens-server",
-    version: "2.0.0",
+    version: "3.0.0",
   },
   {
     capabilities: {
@@ -541,11 +772,128 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             type: {
               type: "string",
-              enum: ["colors", "fonts", "spacing", "borders", "shadows", "all"],
+              enum: [
+                "colors",
+                "fonts",
+                "spacing",
+                "borders",
+                "shadows",
+                "factors",
+                "all",
+              ],
               description: "Filter by branding token type (default: 'all')",
               default: "all",
             },
           },
+        },
+      },
+      {
+        name: "get_theme_config",
+        description:
+          "Get the JSON theme configuration file (branding-token.json). This is the structured source of truth for theming that controls colors, fonts, spacing, breakpoints, and other design decisions.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            section: {
+              type: "string",
+              enum: [
+                "color",
+                "font",
+                "font-weight",
+                "spacing",
+                "border-radius",
+                "box-shadow",
+                "breakpoints",
+                "all",
+              ],
+              description:
+                "Get a specific section of the config (default: 'all')",
+              default: "all",
+            },
+          },
+        },
+      },
+      {
+        name: "update_theme_config",
+        description:
+          "Update a value in the JSON theme configuration (branding-token.json). Use dot notation for nested paths like 'color.primary' or 'font.display.family'. This is the recommended way to change theme values.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description:
+                "Dot notation path to the value (e.g., 'color.primary', 'font.display.font-size', 'spacing.base')",
+            },
+            value: {
+              type: ["string", "number", "boolean", "object"],
+              description: "New value to set",
+            },
+          },
+          required: ["path", "value"],
+        },
+      },
+      {
+        name: "list_theme_values",
+        description:
+          "List all values in the JSON theme configuration as a flat list with dot notation paths. Useful for seeing all configurable theme values at once.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            filter: {
+              type: "string",
+              description:
+                "Filter paths containing this string (e.g., 'color', 'font', 'bp-factor')",
+            },
+          },
+        },
+      },
+      {
+        name: "get_factor_tokens",
+        description:
+          "Get factor-based tokens that control scaling (duration, border-radius, box-shadow, spacing factors). These are multipliers that affect the intensity of design elements.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            factorType: {
+              type: "string",
+              enum: [
+                "duration",
+                "border-radius",
+                "box-shadow",
+                "spacing",
+                "font-size",
+                "all",
+              ],
+              description: "Filter by factor type (default: 'all')",
+              default: "all",
+            },
+          },
+        },
+      },
+      {
+        name: "get_breakpoint_tokens",
+        description:
+          "Get breakpoint-related tokens including breakpoint values and responsive scaling factors (bp-factor).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            includeFactors: {
+              type: "boolean",
+              description:
+                "Include bp-factor tokens for responsive scaling (default: true)",
+              default: true,
+            },
+          },
+        },
+      },
+      {
+        name: "get_duration_tokens",
+        description:
+          "Get animation/transition duration and timing function tokens.",
+        inputSchema: {
+          type: "object",
+          properties: {},
         },
       },
     ],
@@ -611,6 +959,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   value: tokenData.value,
                   file: tokenData.file,
                   category: tokenData.category,
+                  ...(tokenData.section && { section: tokenData.section }),
+                  ...(tokenData.comment && { comment: tokenData.comment }),
                 },
                 null,
                 2,
@@ -843,6 +1193,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               value: data.value,
               file: data.file,
               category: data.category,
+              ...(data.section && { section: data.section }),
+              ...(data.comment && { comment: data.comment }),
             });
           }
         }
@@ -907,6 +1259,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             value: data.value,
             file: data.file,
             category: data.category,
+            ...(data.section && { section: data.section }),
+            ...(data.comment && { comment: data.comment }),
           });
         }
 
@@ -967,6 +1321,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             value: data.value,
             file: data.file,
             category: data.category,
+            ...(data.section && { section: data.section }),
+            ...(data.comment && { comment: data.comment }),
           });
         }
 
@@ -1018,6 +1374,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             file: data.file,
             category: data.category,
             isEditable: !data.value.includes("var("),
+            ...(data.section && { section: data.section }),
+            ...(data.comment && { comment: data.comment }),
           });
         }
 
@@ -1070,6 +1428,265 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case "get_theme_config": {
+        const config = await readBrandingJson();
+
+        let result;
+        if (args.section) {
+          const sectionData = config[args.section];
+          if (sectionData === undefined) {
+            throw new Error(
+              `Unknown section: ${args.section}. Available sections: ${Object.keys(config).join(", ")}`,
+            );
+          }
+          result = {
+            section: args.section,
+            data: sectionData,
+            availableSections: Object.keys(config),
+          };
+        } else {
+          result = {
+            sections: Object.keys(config),
+            config: config,
+            note: "Use the 'section' parameter to get specific sections like 'color', 'font', 'spacing', etc.",
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "update_theme_config": {
+        if (!args.path) {
+          throw new Error(
+            "Path is required (e.g., 'color.primary', 'font.copy.font-size')",
+          );
+        }
+        if (args.value === undefined || args.value === null) {
+          throw new Error("Value is required");
+        }
+
+        const config = await readBrandingJson();
+        const oldValue = getNestedValue(config, args.path);
+
+        if (oldValue === undefined) {
+          throw new Error(`Path not found: ${args.path}`);
+        }
+
+        setNestedValue(config, args.path, args.value);
+        await writeBrandingJson(config);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  success: true,
+                  message: "Theme configuration updated successfully",
+                  path: args.path,
+                  oldValue: oldValue,
+                  newValue: args.value,
+                  note: "Remember to regenerate CSS tokens if needed",
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }
+
+      case "list_theme_values": {
+        const config = await readBrandingJson();
+        const flatValues = flattenJsonConfig(config);
+
+        let filtered = flatValues;
+        if (args.filter) {
+          const filterLower = args.filter.toLowerCase();
+          filtered = flatValues.filter(
+            (item) =>
+              item.path.toLowerCase().includes(filterLower) ||
+              String(item.value).toLowerCase().includes(filterLower),
+          );
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  filter: args.filter || "none",
+                  totalValues: filtered.length,
+                  values: filtered,
+                  note: "Use update_theme_config with the 'path' to modify values",
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }
+
+      case "get_factor_tokens": {
+        const tokens = await parseAllTokens("branding");
+        const factorTokens = [];
+
+        const factorPatterns = [/factor/i, /ratio/i, /scale/i, /multiplier/i];
+
+        for (const [tokenName, data] of tokens.entries()) {
+          const isFactorToken = factorPatterns.some((pattern) =>
+            pattern.test(tokenName),
+          );
+
+          if (!isFactorToken) continue;
+
+          // Filter by type if specified
+          if (args.type) {
+            if (!tokenName.toLowerCase().includes(args.type.toLowerCase())) {
+              continue;
+            }
+          }
+
+          factorTokens.push({
+            name: tokenName,
+            value: data.value,
+            file: data.file,
+            category: data.category,
+            description: getFactorDescription(tokenName),
+            ...(data.section && { section: data.section }),
+            ...(data.comment && { comment: data.comment }),
+          });
+        }
+
+        factorTokens.sort((a, b) => a.name.localeCompare(b.name));
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  type: args.type || "all",
+                  totalTokens: factorTokens.length,
+                  note: "Factor tokens are multipliers that affect other token calculations",
+                  tokens: factorTokens,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }
+
+      case "get_breakpoint_tokens": {
+        const tokens = await parseAllTokens("branding");
+        const breakpointTokens = [];
+
+        for (const [tokenName, data] of tokens.entries()) {
+          const isBreakpoint =
+            tokenName.includes("breakpoint") ||
+            tokenName.includes("bp-") ||
+            tokenName.includes("-bp");
+
+          if (!isBreakpoint) continue;
+
+          breakpointTokens.push({
+            name: tokenName,
+            value: data.value,
+            file: data.file,
+            category: data.category,
+            ...(data.section && { section: data.section }),
+            ...(data.comment && { comment: data.comment }),
+          });
+        }
+
+        // Also get breakpoints from JSON config
+        const config = await readBrandingJson();
+        if (config.breakpoints) {
+          for (const [bpName, bpValue] of Object.entries(config.breakpoints)) {
+            breakpointTokens.push({
+              name: `breakpoint.${bpName}`,
+              value: bpValue,
+              file: "branding-token.json",
+              category: "json-config",
+              source: "json",
+            });
+          }
+        }
+
+        breakpointTokens.sort((a, b) => a.name.localeCompare(b.name));
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  totalTokens: breakpointTokens.length,
+                  note: "Breakpoints define responsive design boundaries",
+                  tokens: breakpointTokens,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }
+
+      case "get_duration_tokens": {
+        const tokens = await parseAllTokens("branding");
+        const durationTokens = [];
+
+        for (const [tokenName, data] of tokens.entries()) {
+          const isDuration =
+            tokenName.includes("duration") ||
+            tokenName.includes("timing") ||
+            tokenName.includes("transition") ||
+            tokenName.includes("animation");
+
+          if (!isDuration) continue;
+
+          durationTokens.push({
+            name: tokenName,
+            value: data.value,
+            file: data.file,
+            category: data.category,
+            ...(data.section && { section: data.section }),
+            ...(data.comment && { comment: data.comment }),
+          });
+        }
+
+        durationTokens.sort((a, b) => a.name.localeCompare(b.name));
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  totalTokens: durationTokens.length,
+                  note: "Duration tokens control animation and transition timing",
+                  tokens: durationTokens,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -1103,7 +1720,7 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
 
-    console.error("Design Tokens MCP Server v2.0.0 running on stdio");
+    console.error("Design Tokens MCP Server v3.0.0 running on stdio");
     console.error(`Tokens directory: ${TOKENS_DIR}`);
 
     // Log available files
