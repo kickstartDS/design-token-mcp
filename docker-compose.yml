@@ -1,0 +1,46 @@
+# Docker Compose for local development and testing
+# Usage: docker compose up --build
+
+version: "3.8"
+
+services:
+  design-tokens-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: design-tokens-mcp
+    restart: unless-stopped
+    volumes:
+      # Mount tokens directory for live updates during development
+      - ./tokens:/app/tokens:ro
+    environment:
+      - NODE_ENV=development
+    # MCP servers communicate via stdio, not HTTP
+    # Use stdin_open and tty for interactive mode
+    stdin_open: true
+    tty: true
+    labels:
+      - "traefik.enable=false"
+
+  # Optional: Add Traefik for HTTP-based MCP transport (if implemented)
+  # traefik:
+  #   image: traefik:v3.0
+  #   container_name: traefik
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #     - "8080:8080"
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #     - ./letsencrypt:/letsencrypt
+  #   command:
+  #     - "--api.insecure=true"
+  #     - "--providers.docker=true"
+  #     - "--providers.docker.exposedbydefault=false"
+  #     - "--entrypoints.web.address=:80"
+  #     - "--entrypoints.websecure.address=:443"
+
+networks:
+  default:
+    name: design-tokens-network

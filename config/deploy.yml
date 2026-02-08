@@ -1,0 +1,87 @@
+# Kamal deployment configuration for Design Tokens MCP Server
+# See https://kamal-deploy.org for documentation
+
+service: design-tokens-mcp
+
+# Docker image configuration
+image: kickstartds/design-tokens-mcp
+
+# Server configuration
+servers:
+  web:
+    hosts:
+      - your-server-ip-or-hostname
+    labels:
+      traefik.http.routers.design-tokens-mcp.rule: Host(`tokens.yourdomain.com`)
+      traefik.http.routers.design-tokens-mcp.tls: true
+      traefik.http.routers.design-tokens-mcp.tls.certresolver: letsencrypt
+
+# Docker registry configuration
+registry:
+  server: ghcr.io
+  username:
+    - KAMAL_REGISTRY_USERNAME
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+# Environment variables
+env:
+  clear:
+    NODE_ENV: production
+  secret:
+    # Add any secret environment variables here
+    # - MCP_SECRET_KEY
+
+# Build configuration
+builder:
+  dockerfile: Dockerfile
+  context: .
+  multiarch: false
+  args:
+    NODE_ENV: production
+
+# Health check configuration
+healthcheck:
+  path: /health
+  port: 3000
+  max_attempts: 10
+  interval: 20s
+
+# Accessories (optional services)
+# Uncomment if you need a database or other services
+# accessories:
+#   redis:
+#     image: redis:7-alpine
+#     host: your-server-ip
+#     port: 6379
+#     directories:
+#       - data:/data
+
+# Traefik configuration for SSL/TLS
+traefik:
+  options:
+    publish:
+      - "443:443"
+      - "80:80"
+    volume:
+      - "/letsencrypt:/letsencrypt"
+  args:
+    entryPoints.web.address: ":80"
+    entryPoints.websecure.address: ":443"
+    entryPoints.web.http.redirections.entryPoint.to: websecure
+    entryPoints.web.http.redirections.entryPoint.scheme: https
+    certificatesResolvers.letsencrypt.acme.email: your-email@yourdomain.com
+    certificatesResolvers.letsencrypt.acme.storage: /letsencrypt/acme.json
+    certificatesResolvers.letsencrypt.acme.httpchallenge: true
+    certificatesResolvers.letsencrypt.acme.httpchallenge.entrypoint: web
+
+# SSH configuration
+ssh:
+  user: deploy
+  # keys:
+  #   - ~/.ssh/id_rsa
+
+# Boot configuration
+boot:
+  limit: 10%
+  wait: 30

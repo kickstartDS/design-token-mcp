@@ -2,8 +2,12 @@ node_modules/
 *.log
 .DS_Store
 .env
+.env.*
 dist/
 build/
 *.swp
 *.swo
 *~
+
+# Kamal secrets (do not commit!)
+.kamal/secrets
