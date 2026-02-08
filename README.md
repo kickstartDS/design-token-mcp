@@ -38,15 +38,36 @@ npm install
 
 ## Usage
 
-### Starting the Server
+### Starting the Server (stdio — local)
 
 ```bash
 npm start
 ```
 
+This uses stdio transport, suitable for local MCP clients like Claude Desktop.
+
+### Starting the Server (HTTP — remote / cloud)
+
+```bash
+npm run start:http
+```
+
+Or directly:
+
+```bash
+MCP_TRANSPORT=http PORT=3000 node index.js
+```
+
+This starts an HTTP server with the MCP Streamable HTTP transport, suitable for cloud deployments behind a reverse proxy.
+
+| Endpoint  | Description                  |
+| --------- | ---------------------------- |
+| `/mcp`    | MCP Streamable HTTP endpoint |
+| `/health` | Health check (JSON)          |
+
 ### MCP Client Configuration
 
-Add to your MCP client configuration (e.g., Claude Desktop):
+For **local** use (stdio):
 
 ```json
 {
@@ -54,6 +75,19 @@ Add to your MCP client configuration (e.g., Claude Desktop):
     "design-tokens": {
       "command": "node",
       "args": ["/path/to/design-tokens-mcp/index.js"]
+    }
+  }
+}
+```
+
+For **remote** use (Streamable HTTP):
+
+```json
+{
+  "mcpServers": {
+    "design-tokens": {
+      "type": "streamable-http",
+      "url": "https://tokens.yourdomain.com/mcp"
     }
   }
 }
@@ -249,6 +283,14 @@ All errors return consistent JSON:
 
 - Node.js 16+ (ES modules support)
 - @modelcontextprotocol/sdk ^1.25.3
+
+## Environment Variables
+
+| Variable        | Description                         | Default      |
+| --------------- | ----------------------------------- | ------------ |
+| `MCP_TRANSPORT` | Transport mode: `stdio` or `http`   | `stdio`      |
+| `PORT`          | HTTP server port (when `http` mode) | `3000`       |
+| `NODE_ENV`      | Environment mode                    | `production` |
 
 ## License
 

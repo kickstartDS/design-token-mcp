@@ -2,6 +2,7 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -9,6 +10,8 @@ import {
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -534,399 +537,425 @@ const server = new Server(
   },
 );
 
-// Tool definitions
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "get_token",
-        description:
-          "Retrieve the value of a specific design token by name. Returns the token value along with its source file and category.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            name: {
-              type: "string",
-              description:
-                "The token name (e.g., 'ks-brand-color-primary' or '--ks-brand-color-primary')",
+/**
+ * Register all MCP tool handlers on a given Server instance.
+ * Extracted so that both stdio and HTTP session servers share the same logic.
+ * @param {Server} srv
+ */
+function registerHandlers(srv) {
+  // Tool definitions
+  srv.setRequestHandler(ListToolsRequestSchema, async () => {
+    return {
+      tools: [
+        {
+          name: "get_token",
+          description:
+            "Retrieve the value of a specific design token by name. Returns the token value along with its source file and category.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                description:
+                  "The token name (e.g., 'ks-brand-color-primary' or '--ks-brand-color-primary')",
+              },
             },
-          },
-          required: ["name"],
-        },
-      },
-      {
-        name: "list_tokens",
-        description:
-          "List design tokens with optional filtering. Can filter by file, category, or name prefix. Returns paginated results for large token sets.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            file: {
-              type: "string",
-              enum: Object.keys(TOKEN_FILES),
-              description:
-                "Filter by source file (e.g., 'branding', 'color', 'spacing')",
-            },
-            category: {
-              type: "string",
-              description:
-                "Filter by category pattern in token name (e.g., 'color', 'font', 'spacing')",
-            },
-            prefix: {
-              type: "string",
-              description:
-                "Filter by token name prefix (e.g., 'ks-brand', 'ks-color-primary')",
-            },
-            limit: {
-              type: "number",
-              description: "Maximum number of tokens to return (default: 50)",
-              default: 50,
-            },
-            offset: {
-              type: "number",
-              description:
-                "Number of tokens to skip for pagination (default: 0)",
-              default: 0,
-            },
+            required: ["name"],
           },
         },
-      },
-      {
-        name: "list_files",
-        description:
-          "List all available token files with their descriptions and token counts.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
-        name: "get_token_stats",
-        description:
-          "Get statistics about the token system including counts by file, category, and prefix.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
-        name: "search_tokens",
-        description:
-          "Search for design tokens by pattern in names or values. Supports filtering by file and semantic type.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            pattern: {
-              type: "string",
-              description: "Search pattern (case-insensitive)",
-            },
-            searchIn: {
-              type: "string",
-              enum: ["name", "value", "both"],
-              description: "Where to search (default: 'both')",
-              default: "both",
-            },
-            file: {
-              type: "string",
-              enum: Object.keys(TOKEN_FILES),
-              description: "Limit search to specific file",
-            },
-            limit: {
-              type: "number",
-              description: "Maximum results to return (default: 50)",
-              default: 50,
-            },
-          },
-          required: ["pattern"],
-        },
-      },
-      {
-        name: "get_tokens_by_type",
-        description:
-          "Get tokens by semantic type (interactive states, scales, responsive values, etc.)",
-        inputSchema: {
-          type: "object",
-          properties: {
-            type: {
-              type: "string",
-              enum: [
-                "interactive",
-                "inverted",
-                "scale",
-                "base",
-                "responsive",
-                "sizing",
-              ],
-              description:
-                "Semantic type: 'interactive' (hover/active/selected), 'inverted' (dark mode), 'scale' (alpha/mixing scales), 'base' (base tokens), 'responsive' (breakpoint), 'sizing' (xxs-xxl)",
-            },
-            file: {
-              type: "string",
-              enum: Object.keys(TOKEN_FILES),
-              description: "Limit to specific file",
-            },
-            limit: {
-              type: "number",
-              description: "Maximum results (default: 50)",
-              default: 50,
-            },
-          },
-          required: ["type"],
-        },
-      },
-      {
-        name: "get_color_palette",
-        description:
-          "Get all color-related tokens organized by color type (primary, positive, negative, etc.). Useful for understanding the full color system.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            colorType: {
-              type: "string",
-              enum: [
-                "primary",
-                "positive",
-                "negative",
-                "informative",
-                "notice",
-                "fg",
-                "bg",
-                "link",
-              ],
-              description: "Filter by specific color type",
-            },
-            includeScales: {
-              type: "boolean",
-              description:
-                "Include alpha/mixing scale variants (default: false)",
-              default: false,
+        {
+          name: "list_tokens",
+          description:
+            "List design tokens with optional filtering. Can filter by file, category, or name prefix. Returns paginated results for large token sets.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              file: {
+                type: "string",
+                enum: Object.keys(TOKEN_FILES),
+                description:
+                  "Filter by source file (e.g., 'branding', 'color', 'spacing')",
+              },
+              category: {
+                type: "string",
+                description:
+                  "Filter by category pattern in token name (e.g., 'color', 'font', 'spacing')",
+              },
+              prefix: {
+                type: "string",
+                description:
+                  "Filter by token name prefix (e.g., 'ks-brand', 'ks-color-primary')",
+              },
+              limit: {
+                type: "number",
+                description: "Maximum number of tokens to return (default: 50)",
+                default: 50,
+              },
+              offset: {
+                type: "number",
+                description:
+                  "Number of tokens to skip for pagination (default: 0)",
+                default: 0,
+              },
             },
           },
         },
-      },
-      {
-        name: "get_typography_tokens",
-        description:
-          "Get typography-related tokens (font families, weights, sizes, line heights).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            fontType: {
-              type: "string",
-              enum: ["display", "copy", "interface", "mono"],
-              description: "Filter by font type",
+        {
+          name: "list_files",
+          description:
+            "List all available token files with their descriptions and token counts.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+        },
+        {
+          name: "get_token_stats",
+          description:
+            "Get statistics about the token system including counts by file, category, and prefix.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+        },
+        {
+          name: "search_tokens",
+          description:
+            "Search for design tokens by pattern in names or values. Supports filtering by file and semantic type.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              pattern: {
+                type: "string",
+                description: "Search pattern (case-insensitive)",
+              },
+              searchIn: {
+                type: "string",
+                enum: ["name", "value", "both"],
+                description: "Where to search (default: 'both')",
+                default: "both",
+              },
+              file: {
+                type: "string",
+                enum: Object.keys(TOKEN_FILES),
+                description: "Limit search to specific file",
+              },
+              limit: {
+                type: "number",
+                description: "Maximum results to return (default: 50)",
+                default: 50,
+              },
             },
-            property: {
-              type: "string",
-              enum: ["family", "weight", "size", "line-height"],
-              description: "Filter by property type",
+            required: ["pattern"],
+          },
+        },
+        {
+          name: "get_tokens_by_type",
+          description:
+            "Get tokens by semantic type (interactive states, scales, responsive values, etc.)",
+          inputSchema: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: [
+                  "interactive",
+                  "inverted",
+                  "scale",
+                  "base",
+                  "responsive",
+                  "sizing",
+                ],
+                description:
+                  "Semantic type: 'interactive' (hover/active/selected), 'inverted' (dark mode), 'scale' (alpha/mixing scales), 'base' (base tokens), 'responsive' (breakpoint), 'sizing' (xxs-xxl)",
+              },
+              file: {
+                type: "string",
+                enum: Object.keys(TOKEN_FILES),
+                description: "Limit to specific file",
+              },
+              limit: {
+                type: "number",
+                description: "Maximum results (default: 50)",
+                default: 50,
+              },
+            },
+            required: ["type"],
+          },
+        },
+        {
+          name: "get_color_palette",
+          description:
+            "Get all color-related tokens organized by color type (primary, positive, negative, etc.). Useful for understanding the full color system.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              colorType: {
+                type: "string",
+                enum: [
+                  "primary",
+                  "positive",
+                  "negative",
+                  "informative",
+                  "notice",
+                  "fg",
+                  "bg",
+                  "link",
+                ],
+                description: "Filter by specific color type",
+              },
+              includeScales: {
+                type: "boolean",
+                description:
+                  "Include alpha/mixing scale variants (default: false)",
+                default: false,
+              },
             },
           },
         },
-      },
-      {
-        name: "get_spacing_tokens",
-        description:
-          "Get spacing tokens (margins, padding, gaps) with their scale values.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            size: {
-              type: "string",
-              enum: ["xxs", "xs", "s", "m", "l", "xl", "xxl"],
-              description: "Filter by specific size",
-            },
-            type: {
-              type: "string",
-              enum: ["stack", "inline", "inset", "base"],
-              description: "Filter by spacing type",
-            },
-          },
-        },
-      },
-      {
-        name: "update_token",
-        description:
-          "Update a design token value and save it to its source file. Only works for tokens with direct values (not calculated/derived tokens).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            name: {
-              type: "string",
-              description: "Token name to update",
-            },
-            value: {
-              type: "string",
-              description: "New value for the token",
-            },
-          },
-          required: ["name", "value"],
-        },
-      },
-      {
-        name: "get_branding_tokens",
-        description:
-          "Get the core branding tokens that control the overall design system (brand colors, font bases, spacing base). These are the primary tokens to modify for theming.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            type: {
-              type: "string",
-              enum: [
-                "colors",
-                "fonts",
-                "spacing",
-                "borders",
-                "shadows",
-                "factors",
-                "all",
-              ],
-              description: "Filter by branding token type (default: 'all')",
-              default: "all",
+        {
+          name: "get_typography_tokens",
+          description:
+            "Get typography-related tokens (font families, weights, sizes, line heights).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fontType: {
+                type: "string",
+                enum: ["display", "copy", "interface", "mono"],
+                description: "Filter by font type",
+              },
+              property: {
+                type: "string",
+                enum: ["family", "weight", "size", "line-height"],
+                description: "Filter by property type",
+              },
             },
           },
         },
-      },
-      {
-        name: "get_theme_config",
-        description:
-          "Get the JSON theme configuration file (branding-token.json). This is the structured source of truth for theming that controls colors, fonts, spacing, breakpoints, and other design decisions.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            section: {
-              type: "string",
-              enum: [
-                "color",
-                "font",
-                "font-weight",
-                "spacing",
-                "border-radius",
-                "box-shadow",
-                "breakpoints",
-                "all",
-              ],
-              description:
-                "Get a specific section of the config (default: 'all')",
-              default: "all",
+        {
+          name: "get_spacing_tokens",
+          description:
+            "Get spacing tokens (margins, padding, gaps) with their scale values.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              size: {
+                type: "string",
+                enum: ["xxs", "xs", "s", "m", "l", "xl", "xxl"],
+                description: "Filter by specific size",
+              },
+              type: {
+                type: "string",
+                enum: ["stack", "inline", "inset", "base"],
+                description: "Filter by spacing type",
+              },
             },
           },
         },
-      },
-      {
-        name: "update_theme_config",
-        description:
-          "Update a value in the JSON theme configuration (branding-token.json). Use dot notation for nested paths like 'color.primary' or 'font.display.family'. This is the recommended way to change theme values.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            path: {
-              type: "string",
-              description:
-                "Dot notation path to the value (e.g., 'color.primary', 'font.display.font-size', 'spacing.base')",
+        {
+          name: "update_token",
+          description:
+            "Update a design token value and save it to its source file. Only works for tokens with direct values (not calculated/derived tokens).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                description: "Token name to update",
+              },
+              value: {
+                type: "string",
+                description: "New value for the token",
+              },
             },
-            value: {
-              type: ["string", "number", "boolean", "object"],
-              description: "New value to set",
-            },
-          },
-          required: ["path", "value"],
-        },
-      },
-      {
-        name: "list_theme_values",
-        description:
-          "List all values in the JSON theme configuration as a flat list with dot notation paths. Useful for seeing all configurable theme values at once.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            filter: {
-              type: "string",
-              description:
-                "Filter paths containing this string (e.g., 'color', 'font', 'bp-factor')",
-            },
+            required: ["name", "value"],
           },
         },
-      },
-      {
-        name: "get_factor_tokens",
-        description:
-          "Get factor-based tokens that control scaling (duration, border-radius, box-shadow, spacing factors). These are multipliers that affect the intensity of design elements.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            factorType: {
-              type: "string",
-              enum: [
-                "duration",
-                "border-radius",
-                "box-shadow",
-                "spacing",
-                "font-size",
-                "all",
-              ],
-              description: "Filter by factor type (default: 'all')",
-              default: "all",
+        {
+          name: "get_branding_tokens",
+          description:
+            "Get the core branding tokens that control the overall design system (brand colors, font bases, spacing base). These are the primary tokens to modify for theming.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: [
+                  "colors",
+                  "fonts",
+                  "spacing",
+                  "borders",
+                  "shadows",
+                  "factors",
+                  "all",
+                ],
+                description: "Filter by branding token type (default: 'all')",
+                default: "all",
+              },
             },
           },
         },
-      },
-      {
-        name: "get_breakpoint_tokens",
-        description:
-          "Get breakpoint-related tokens including breakpoint values and responsive scaling factors (bp-factor).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            includeFactors: {
-              type: "boolean",
-              description:
-                "Include bp-factor tokens for responsive scaling (default: true)",
-              default: true,
+        {
+          name: "get_theme_config",
+          description:
+            "Get the JSON theme configuration file (branding-token.json). This is the structured source of truth for theming that controls colors, fonts, spacing, breakpoints, and other design decisions.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              section: {
+                type: "string",
+                enum: [
+                  "color",
+                  "font",
+                  "font-weight",
+                  "spacing",
+                  "border-radius",
+                  "box-shadow",
+                  "breakpoints",
+                  "all",
+                ],
+                description:
+                  "Get a specific section of the config (default: 'all')",
+                default: "all",
+              },
             },
           },
         },
-      },
-      {
-        name: "get_duration_tokens",
-        description:
-          "Get animation/transition duration and timing function tokens.",
-        inputSchema: {
-          type: "object",
-          properties: {},
+        {
+          name: "update_theme_config",
+          description:
+            "Update a value in the JSON theme configuration (branding-token.json). Use dot notation for nested paths like 'color.primary' or 'font.display.family'. This is the recommended way to change theme values.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Dot notation path to the value (e.g., 'color.primary', 'font.display.font-size', 'spacing.base')",
+              },
+              value: {
+                type: ["string", "number", "boolean", "object"],
+                description: "New value to set",
+              },
+            },
+            required: ["path", "value"],
+          },
         },
-      },
-    ],
-  };
-});
+        {
+          name: "list_theme_values",
+          description:
+            "List all values in the JSON theme configuration as a flat list with dot notation paths. Useful for seeing all configurable theme values at once.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              filter: {
+                type: "string",
+                description:
+                  "Filter paths containing this string (e.g., 'color', 'font', 'bp-factor')",
+              },
+            },
+          },
+        },
+        {
+          name: "get_factor_tokens",
+          description:
+            "Get factor-based tokens that control scaling (duration, border-radius, box-shadow, spacing factors). These are multipliers that affect the intensity of design elements.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              factorType: {
+                type: "string",
+                enum: [
+                  "duration",
+                  "border-radius",
+                  "box-shadow",
+                  "spacing",
+                  "font-size",
+                  "all",
+                ],
+                description: "Filter by factor type (default: 'all')",
+                default: "all",
+              },
+            },
+          },
+        },
+        {
+          name: "get_breakpoint_tokens",
+          description:
+            "Get breakpoint-related tokens including breakpoint values and responsive scaling factors (bp-factor).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              includeFactors: {
+                type: "boolean",
+                description:
+                  "Include bp-factor tokens for responsive scaling (default: true)",
+                default: true,
+              },
+            },
+          },
+        },
+        {
+          name: "get_duration_tokens",
+          description:
+            "Get animation/transition duration and timing function tokens.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+        },
+      ],
+    };
+  });
 
-// Tool execution handler
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
+  // Tool execution handler
+  srv.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
 
-  try {
-    switch (name) {
-      case "get_token": {
-        if (!args.name) {
-          throw new Error("Token name is required");
-        }
+    try {
+      switch (name) {
+        case "get_token": {
+          if (!args.name) {
+            throw new Error("Token name is required");
+          }
 
-        const tokens = await parseAllTokens();
-        const normalizedName = args.name.startsWith("--")
-          ? args.name
-          : `--${args.name}`;
+          const tokens = await parseAllTokens();
+          const normalizedName = args.name.startsWith("--")
+            ? args.name
+            : `--${args.name}`;
 
-        const tokenData = tokens.get(normalizedName);
+          const tokenData = tokens.get(normalizedName);
 
-        if (!tokenData) {
-          // Suggest similar tokens
-          const suggestions = [];
-          const searchTerm = normalizedName.toLowerCase();
-          for (const [tokenName] of tokens.entries()) {
-            if (tokenName.toLowerCase().includes(searchTerm.slice(2, 15))) {
-              suggestions.push(tokenName);
-              if (suggestions.length >= 5) break;
+          if (!tokenData) {
+            // Suggest similar tokens
+            const suggestions = [];
+            const searchTerm = normalizedName.toLowerCase();
+            for (const [tokenName] of tokens.entries()) {
+              if (tokenName.toLowerCase().includes(searchTerm.slice(2, 15))) {
+                suggestions.push(tokenName);
+                if (suggestions.length >= 5) break;
+              }
             }
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    {
+                      error: "Token not found",
+                      requestedToken: normalizedName,
+                      suggestions:
+                        suggestions.length > 0 ? suggestions : undefined,
+                      hint: "Use 'list_tokens' or 'search_tokens' to find available tokens",
+                    },
+                    null,
+                    2,
+                  ),
+                },
+              ],
+            };
           }
 
           return {
@@ -935,11 +964,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 type: "text",
                 text: JSON.stringify(
                   {
-                    error: "Token not found",
-                    requestedToken: normalizedName,
-                    suggestions:
-                      suggestions.length > 0 ? suggestions : undefined,
-                    hint: "Use 'list_tokens' or 'search_tokens' to find available tokens",
+                    token: normalizedName,
+                    value: tokenData.value,
+                    file: tokenData.file,
+                    category: tokenData.category,
+                    ...(tokenData.section && { section: tokenData.section }),
+                    ...(tokenData.comment && { comment: tokenData.comment }),
                   },
                   null,
                   2,
@@ -949,246 +979,293 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  token: normalizedName,
-                  value: tokenData.value,
-                  file: tokenData.file,
-                  category: tokenData.category,
-                  ...(tokenData.section && { section: tokenData.section }),
-                  ...(tokenData.comment && { comment: tokenData.comment }),
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-
-      case "list_tokens": {
-        const tokens = await parseAllTokens(args.file);
-        let filteredTokens = Array.from(tokens.entries()).map(
-          ([name, data]) => ({
-            name,
-            ...data,
-          }),
-        );
-
-        // Apply category filter
-        if (args.category) {
-          const categoryPattern = args.category.toLowerCase();
-          filteredTokens = filteredTokens.filter((token) =>
-            token.name.toLowerCase().includes(categoryPattern),
+        case "list_tokens": {
+          const tokens = await parseAllTokens(args.file);
+          let filteredTokens = Array.from(tokens.entries()).map(
+            ([name, data]) => ({
+              name,
+              ...data,
+            }),
           );
-        }
 
-        // Apply prefix filter
-        if (args.prefix) {
-          const prefixPattern = args.prefix.toLowerCase();
-          const normalizedPrefix = prefixPattern.startsWith("--")
-            ? prefixPattern
-            : `--${prefixPattern}`;
-          filteredTokens = filteredTokens.filter((token) =>
-            token.name.toLowerCase().startsWith(normalizedPrefix),
-          );
-        }
-
-        // Sort by name
-        filteredTokens.sort((a, b) => a.name.localeCompare(b.name));
-
-        // Paginate
-        const limit = args.limit || 50;
-        const offset = args.offset || 0;
-        const total = filteredTokens.length;
-        const paginatedTokens = filteredTokens.slice(offset, offset + limit);
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  totalMatching: total,
-                  returned: paginatedTokens.length,
-                  offset,
-                  limit,
-                  hasMore: offset + limit < total,
-                  filters: {
-                    file: args.file || "all",
-                    category: args.category || null,
-                    prefix: args.prefix || null,
-                  },
-                  tokens: paginatedTokens,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-
-      case "list_files": {
-        const fileStats = [];
-        for (const [key, config] of Object.entries(TOKEN_FILES)) {
-          const filePath = path.join(TOKENS_DIR, config.file);
-          try {
-            await fs.access(filePath);
-            const tokens = await parseTokenFile(filePath, config.category);
-            fileStats.push({
-              key,
-              file: config.file,
-              description: config.description,
-              category: config.category,
-              tokenCount: tokens.size,
-            });
-          } catch {
-            fileStats.push({
-              key,
-              file: config.file,
-              description: config.description,
-              category: config.category,
-              tokenCount: 0,
-              status: "not found",
-            });
+          // Apply category filter
+          if (args.category) {
+            const categoryPattern = args.category.toLowerCase();
+            filteredTokens = filteredTokens.filter((token) =>
+              token.name.toLowerCase().includes(categoryPattern),
+            );
           }
+
+          // Apply prefix filter
+          if (args.prefix) {
+            const prefixPattern = args.prefix.toLowerCase();
+            const normalizedPrefix = prefixPattern.startsWith("--")
+              ? prefixPattern
+              : `--${prefixPattern}`;
+            filteredTokens = filteredTokens.filter((token) =>
+              token.name.toLowerCase().startsWith(normalizedPrefix),
+            );
+          }
+
+          // Sort by name
+          filteredTokens.sort((a, b) => a.name.localeCompare(b.name));
+
+          // Paginate
+          const limit = args.limit || 50;
+          const offset = args.offset || 0;
+          const total = filteredTokens.length;
+          const paginatedTokens = filteredTokens.slice(offset, offset + limit);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    totalMatching: total,
+                    returned: paginatedTokens.length,
+                    offset,
+                    limit,
+                    hasMore: offset + limit < total,
+                    filters: {
+                      file: args.file || "all",
+                      category: args.category || null,
+                      prefix: args.prefix || null,
+                    },
+                    tokens: paginatedTokens,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
         }
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  totalFiles: fileStats.length,
-                  files: fileStats,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
+        case "list_files": {
+          const fileStats = [];
+          for (const [key, config] of Object.entries(TOKEN_FILES)) {
+            const filePath = path.join(TOKENS_DIR, config.file);
+            try {
+              await fs.access(filePath);
+              const tokens = await parseTokenFile(filePath, config.category);
+              fileStats.push({
+                key,
+                file: config.file,
+                description: config.description,
+                category: config.category,
+                tokenCount: tokens.size,
+              });
+            } catch {
+              fileStats.push({
+                key,
+                file: config.file,
+                description: config.description,
+                category: config.category,
+                tokenCount: 0,
+                status: "not found",
+              });
+            }
+          }
 
-      case "get_token_stats": {
-        const stats = await getTokenStats();
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(stats, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "search_tokens": {
-        if (!args.pattern) {
-          throw new Error("Search pattern is required");
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    totalFiles: fileStats.length,
+                    files: fileStats,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
         }
 
-        const tokens = await parseAllTokens(args.file);
-        let results = searchTokens(
-          tokens,
-          args.pattern,
-          args.searchIn || "both",
-        );
-
-        results.sort((a, b) => a.name.localeCompare(b.name));
-
-        const limit = args.limit || 50;
-        const limitedResults = results.slice(0, limit);
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  pattern: args.pattern,
-                  searchIn: args.searchIn || "both",
-                  file: args.file || "all",
-                  totalMatches: results.length,
-                  returned: limitedResults.length,
-                  results: limitedResults,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-
-      case "get_tokens_by_type": {
-        if (!args.type) {
-          throw new Error("Semantic type is required");
+        case "get_token_stats": {
+          const stats = await getTokenStats();
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(stats, null, 2),
+              },
+            ],
+          };
         }
 
-        const tokens = await parseAllTokens(args.file);
-        let results = getTokensBySemanticType(tokens, args.type);
+        case "search_tokens": {
+          if (!args.pattern) {
+            throw new Error("Search pattern is required");
+          }
 
-        results.sort((a, b) => a.name.localeCompare(b.name));
+          const tokens = await parseAllTokens(args.file);
+          let results = searchTokens(
+            tokens,
+            args.pattern,
+            args.searchIn || "both",
+          );
 
-        const limit = args.limit || 50;
-        const limitedResults = results.slice(0, limit);
+          results.sort((a, b) => a.name.localeCompare(b.name));
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  type: args.type,
-                  file: args.file || "all",
-                  totalMatches: results.length,
-                  returned: limitedResults.length,
-                  results: limitedResults,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
+          const limit = args.limit || 50;
+          const limitedResults = results.slice(0, limit);
 
-      case "get_color_palette": {
-        const colorFiles = [
-          "branding",
-          "color",
-          "background-color",
-          "text-color",
-          "border-color",
-        ];
-        const allColors = [];
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    pattern: args.pattern,
+                    searchIn: args.searchIn || "both",
+                    file: args.file || "all",
+                    totalMatches: results.length,
+                    returned: limitedResults.length,
+                    results: limitedResults,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
 
-        for (const fileKey of colorFiles) {
-          const tokens = await parseAllTokens(fileKey);
+        case "get_tokens_by_type": {
+          if (!args.type) {
+            throw new Error("Semantic type is required");
+          }
+
+          const tokens = await parseAllTokens(args.file);
+          let results = getTokensBySemanticType(tokens, args.type);
+
+          results.sort((a, b) => a.name.localeCompare(b.name));
+
+          const limit = args.limit || 50;
+          const limitedResults = results.slice(0, limit);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    type: args.type,
+                    file: args.file || "all",
+                    totalMatches: results.length,
+                    returned: limitedResults.length,
+                    results: limitedResults,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "get_color_palette": {
+          const colorFiles = [
+            "branding",
+            "color",
+            "background-color",
+            "text-color",
+            "border-color",
+          ];
+          const allColors = [];
+
+          for (const fileKey of colorFiles) {
+            const tokens = await parseAllTokens(fileKey);
+            for (const [tokenName, data] of tokens.entries()) {
+              // Filter by color type if specified
+              if (args.colorType) {
+                if (
+                  !tokenName
+                    .toLowerCase()
+                    .includes(args.colorType.toLowerCase())
+                ) {
+                  continue;
+                }
+              }
+
+              // Exclude scales unless requested
+              if (!args.includeScales) {
+                if (/(alpha-\d|to-bg-\d|to-fg-\d)/.test(tokenName)) {
+                  continue;
+                }
+              }
+
+              allColors.push({
+                name: tokenName,
+                value: data.value,
+                file: data.file,
+                category: data.category,
+                ...(data.section && { section: data.section }),
+                ...(data.comment && { comment: data.comment }),
+              });
+            }
+          }
+
+          allColors.sort((a, b) => a.name.localeCompare(b.name));
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    colorType: args.colorType || "all",
+                    includeScales: args.includeScales || false,
+                    totalColors: allColors.length,
+                    colors: allColors.slice(0, 100),
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "get_typography_tokens": {
+          const tokens = await parseAllTokens();
+          const typographyTokens = [];
+
           for (const [tokenName, data] of tokens.entries()) {
-            // Filter by color type if specified
-            if (args.colorType) {
+            const isTypography =
+              tokenName.includes("font") ||
+              tokenName.includes("line-height") ||
+              tokenName.includes("letter-spacing");
+
+            if (!isTypography) continue;
+
+            // Filter by font type
+            if (args.fontType) {
               if (
-                !tokenName.toLowerCase().includes(args.colorType.toLowerCase())
+                !tokenName.toLowerCase().includes(args.fontType.toLowerCase())
               ) {
                 continue;
               }
             }
 
-            // Exclude scales unless requested
-            if (!args.includeScales) {
-              if (/(alpha-\d|to-bg-\d|to-fg-\d)/.test(tokenName)) {
+            // Filter by property
+            if (args.property) {
+              const propertyPatterns = {
+                family: /font-family/,
+                weight: /font-weight/,
+                size: /font-size/,
+                "line-height": /line-height/,
+              };
+              if (!propertyPatterns[args.property]?.test(tokenName)) {
                 continue;
               }
             }
 
-            allColors.push({
+            typographyTokens.push({
               name: tokenName,
               value: data.value,
               file: data.file,
@@ -1197,519 +1274,456 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               ...(data.comment && { comment: data.comment }),
             });
           }
-        }
 
-        allColors.sort((a, b) => a.name.localeCompare(b.name));
+          typographyTokens.sort((a, b) => a.name.localeCompare(b.name));
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  colorType: args.colorType || "all",
-                  includeScales: args.includeScales || false,
-                  totalColors: allColors.length,
-                  colors: allColors.slice(0, 100),
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-
-      case "get_typography_tokens": {
-        const tokens = await parseAllTokens();
-        const typographyTokens = [];
-
-        for (const [tokenName, data] of tokens.entries()) {
-          const isTypography =
-            tokenName.includes("font") ||
-            tokenName.includes("line-height") ||
-            tokenName.includes("letter-spacing");
-
-          if (!isTypography) continue;
-
-          // Filter by font type
-          if (args.fontType) {
-            if (
-              !tokenName.toLowerCase().includes(args.fontType.toLowerCase())
-            ) {
-              continue;
-            }
-          }
-
-          // Filter by property
-          if (args.property) {
-            const propertyPatterns = {
-              family: /font-family/,
-              weight: /font-weight/,
-              size: /font-size/,
-              "line-height": /line-height/,
-            };
-            if (!propertyPatterns[args.property]?.test(tokenName)) {
-              continue;
-            }
-          }
-
-          typographyTokens.push({
-            name: tokenName,
-            value: data.value,
-            file: data.file,
-            category: data.category,
-            ...(data.section && { section: data.section }),
-            ...(data.comment && { comment: data.comment }),
-          });
-        }
-
-        typographyTokens.sort((a, b) => a.name.localeCompare(b.name));
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  fontType: args.fontType || "all",
-                  property: args.property || "all",
-                  totalTokens: typographyTokens.length,
-                  tokens: typographyTokens.slice(0, 100),
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-
-      case "get_spacing_tokens": {
-        const tokens = await parseAllTokens("spacing");
-        const brandingTokens = await parseAllTokens("branding");
-
-        // Merge branding spacing tokens
-        for (const [name, data] of brandingTokens.entries()) {
-          if (name.includes("spacing")) {
-            tokens.set(name, data);
-          }
-        }
-
-        const spacingTokens = [];
-
-        for (const [tokenName, data] of tokens.entries()) {
-          // Filter by size
-          if (args.size) {
-            const sizePattern = new RegExp(`-${args.size}(-|$)`, "i");
-            if (!sizePattern.test(tokenName)) {
-              continue;
-            }
-          }
-
-          // Filter by type
-          if (args.type) {
-            if (args.type === "base") {
-              if (!tokenName.includes("-base")) continue;
-            } else {
-              if (!tokenName.includes(args.type)) continue;
-            }
-          }
-
-          spacingTokens.push({
-            name: tokenName,
-            value: data.value,
-            file: data.file,
-            category: data.category,
-            ...(data.section && { section: data.section }),
-            ...(data.comment && { comment: data.comment }),
-          });
-        }
-
-        spacingTokens.sort((a, b) => a.name.localeCompare(b.name));
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  size: args.size || "all",
-                  type: args.type || "all",
-                  totalTokens: spacingTokens.length,
-                  tokens: spacingTokens,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-
-      case "get_branding_tokens": {
-        const tokens = await parseAllTokens("branding");
-        const brandingTokens = [];
-
-        const typeFilters = {
-          colors: /color/i,
-          fonts: /font/i,
-          spacing: /spacing/i,
-          borders: /border/i,
-          shadows: /shadow/i,
-        };
-
-        for (const [tokenName, data] of tokens.entries()) {
-          // Filter by type
-          if (args.type && args.type !== "all") {
-            const filter = typeFilters[args.type];
-            if (filter && !filter.test(tokenName)) {
-              continue;
-            }
-          }
-
-          brandingTokens.push({
-            name: tokenName,
-            value: data.value,
-            file: data.file,
-            category: data.category,
-            isEditable: !data.value.includes("var("),
-            ...(data.section && { section: data.section }),
-            ...(data.comment && { comment: data.comment }),
-          });
-        }
-
-        brandingTokens.sort((a, b) => a.name.localeCompare(b.name));
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  type: args.type || "all",
-                  totalTokens: brandingTokens.length,
-                  note: "Tokens with isEditable=true can be modified directly",
-                  tokens: brandingTokens,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-
-      case "update_token": {
-        if (!args.name) {
-          throw new Error("Token name is required");
-        }
-        if (args.value === undefined || args.value === null) {
-          throw new Error("Token value is required");
-        }
-
-        const result = await updateTokenInFile(args.name, args.value);
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  success: true,
-                  message: "Token updated successfully",
-                  ...result,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-
-      case "get_theme_config": {
-        const config = await readBrandingJson();
-
-        let result;
-        if (args.section) {
-          const sectionData = config[args.section];
-          if (sectionData === undefined) {
-            throw new Error(
-              `Unknown section: ${args.section}. Available sections: ${Object.keys(config).join(", ")}`,
-            );
-          }
-          result = {
-            section: args.section,
-            data: sectionData,
-            availableSections: Object.keys(config),
-          };
-        } else {
-          result = {
-            sections: Object.keys(config),
-            config: config,
-            note: "Use the 'section' parameter to get specific sections like 'color', 'font', 'spacing', etc.",
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    fontType: args.fontType || "all",
+                    property: args.property || "all",
+                    totalTokens: typographyTokens.length,
+                    tokens: typographyTokens.slice(0, 100),
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
           };
         }
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
+        case "get_spacing_tokens": {
+          const tokens = await parseAllTokens("spacing");
+          const brandingTokens = await parseAllTokens("branding");
 
-      case "update_theme_config": {
-        if (!args.path) {
-          throw new Error(
-            "Path is required (e.g., 'color.primary', 'font.copy.font-size')",
-          );
-        }
-        if (args.value === undefined || args.value === null) {
-          throw new Error("Value is required");
-        }
-
-        const config = await readBrandingJson();
-        const oldValue = getNestedValue(config, args.path);
-
-        if (oldValue === undefined) {
-          throw new Error(`Path not found: ${args.path}`);
-        }
-
-        setNestedValue(config, args.path, args.value);
-        await writeBrandingJson(config);
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  success: true,
-                  message: "Theme configuration updated successfully",
-                  path: args.path,
-                  oldValue: oldValue,
-                  newValue: args.value,
-                  note: "Remember to regenerate CSS tokens if needed",
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-
-      case "list_theme_values": {
-        const config = await readBrandingJson();
-        const flatValues = flattenJsonConfig(config);
-
-        let filtered = flatValues;
-        if (args.filter) {
-          const filterLower = args.filter.toLowerCase();
-          filtered = flatValues.filter(
-            (item) =>
-              item.path.toLowerCase().includes(filterLower) ||
-              String(item.value).toLowerCase().includes(filterLower),
-          );
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  filter: args.filter || "none",
-                  totalValues: filtered.length,
-                  values: filtered,
-                  note: "Use update_theme_config with the 'path' to modify values",
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-
-      case "get_factor_tokens": {
-        const tokens = await parseAllTokens("branding");
-        const factorTokens = [];
-
-        const factorPatterns = [/factor/i, /ratio/i, /scale/i, /multiplier/i];
-
-        for (const [tokenName, data] of tokens.entries()) {
-          const isFactorToken = factorPatterns.some((pattern) =>
-            pattern.test(tokenName),
-          );
-
-          if (!isFactorToken) continue;
-
-          // Filter by type if specified
-          if (args.type) {
-            if (!tokenName.toLowerCase().includes(args.type.toLowerCase())) {
-              continue;
+          // Merge branding spacing tokens
+          for (const [name, data] of brandingTokens.entries()) {
+            if (name.includes("spacing")) {
+              tokens.set(name, data);
             }
           }
 
-          factorTokens.push({
-            name: tokenName,
-            value: data.value,
-            file: data.file,
-            category: data.category,
-            description: getFactorDescription(tokenName),
-            ...(data.section && { section: data.section }),
-            ...(data.comment && { comment: data.comment }),
-          });
-        }
+          const spacingTokens = [];
 
-        factorTokens.sort((a, b) => a.name.localeCompare(b.name));
+          for (const [tokenName, data] of tokens.entries()) {
+            // Filter by size
+            if (args.size) {
+              const sizePattern = new RegExp(`-${args.size}(-|$)`, "i");
+              if (!sizePattern.test(tokenName)) {
+                continue;
+              }
+            }
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  type: args.type || "all",
-                  totalTokens: factorTokens.length,
-                  note: "Factor tokens are multipliers that affect other token calculations",
-                  tokens: factorTokens,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
+            // Filter by type
+            if (args.type) {
+              if (args.type === "base") {
+                if (!tokenName.includes("-base")) continue;
+              } else {
+                if (!tokenName.includes(args.type)) continue;
+              }
+            }
 
-      case "get_breakpoint_tokens": {
-        const tokens = await parseAllTokens("branding");
-        const breakpointTokens = [];
-
-        for (const [tokenName, data] of tokens.entries()) {
-          const isBreakpoint =
-            tokenName.includes("breakpoint") ||
-            tokenName.includes("bp-") ||
-            tokenName.includes("-bp");
-
-          if (!isBreakpoint) continue;
-
-          breakpointTokens.push({
-            name: tokenName,
-            value: data.value,
-            file: data.file,
-            category: data.category,
-            ...(data.section && { section: data.section }),
-            ...(data.comment && { comment: data.comment }),
-          });
-        }
-
-        // Also get breakpoints from JSON config
-        const config = await readBrandingJson();
-        if (config.breakpoints) {
-          for (const [bpName, bpValue] of Object.entries(config.breakpoints)) {
-            breakpointTokens.push({
-              name: `breakpoint.${bpName}`,
-              value: bpValue,
-              file: "branding-token.json",
-              category: "json-config",
-              source: "json",
+            spacingTokens.push({
+              name: tokenName,
+              value: data.value,
+              file: data.file,
+              category: data.category,
+              ...(data.section && { section: data.section }),
+              ...(data.comment && { comment: data.comment }),
             });
           }
+
+          spacingTokens.sort((a, b) => a.name.localeCompare(b.name));
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    size: args.size || "all",
+                    type: args.type || "all",
+                    totalTokens: spacingTokens.length,
+                    tokens: spacingTokens,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
         }
 
-        breakpointTokens.sort((a, b) => a.name.localeCompare(b.name));
+        case "get_branding_tokens": {
+          const tokens = await parseAllTokens("branding");
+          const brandingTokens = [];
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  totalTokens: breakpointTokens.length,
-                  note: "Breakpoints define responsive design boundaries",
-                  tokens: breakpointTokens,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
+          const typeFilters = {
+            colors: /color/i,
+            fonts: /font/i,
+            spacing: /spacing/i,
+            borders: /border/i,
+            shadows: /shadow/i,
+          };
 
-      case "get_duration_tokens": {
-        const tokens = await parseAllTokens("branding");
-        const durationTokens = [];
+          for (const [tokenName, data] of tokens.entries()) {
+            // Filter by type
+            if (args.type && args.type !== "all") {
+              const filter = typeFilters[args.type];
+              if (filter && !filter.test(tokenName)) {
+                continue;
+              }
+            }
 
-        for (const [tokenName, data] of tokens.entries()) {
-          const isDuration =
-            tokenName.includes("duration") ||
-            tokenName.includes("timing") ||
-            tokenName.includes("transition") ||
-            tokenName.includes("animation");
+            brandingTokens.push({
+              name: tokenName,
+              value: data.value,
+              file: data.file,
+              category: data.category,
+              isEditable: !data.value.includes("var("),
+              ...(data.section && { section: data.section }),
+              ...(data.comment && { comment: data.comment }),
+            });
+          }
 
-          if (!isDuration) continue;
+          brandingTokens.sort((a, b) => a.name.localeCompare(b.name));
 
-          durationTokens.push({
-            name: tokenName,
-            value: data.value,
-            file: data.file,
-            category: data.category,
-            ...(data.section && { section: data.section }),
-            ...(data.comment && { comment: data.comment }),
-          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    type: args.type || "all",
+                    totalTokens: brandingTokens.length,
+                    note: "Tokens with isEditable=true can be modified directly",
+                    tokens: brandingTokens,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
         }
 
-        durationTokens.sort((a, b) => a.name.localeCompare(b.name));
+        case "update_token": {
+          if (!args.name) {
+            throw new Error("Token name is required");
+          }
+          if (args.value === undefined || args.value === null) {
+            throw new Error("Token value is required");
+          }
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  totalTokens: durationTokens.length,
-                  note: "Duration tokens control animation and transition timing",
-                  tokens: durationTokens,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
+          const result = await updateTokenInFile(args.name, args.value);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    message: "Token updated successfully",
+                    ...result,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "get_theme_config": {
+          const config = await readBrandingJson();
+
+          let result;
+          if (args.section) {
+            const sectionData = config[args.section];
+            if (sectionData === undefined) {
+              throw new Error(
+                `Unknown section: ${args.section}. Available sections: ${Object.keys(config).join(", ")}`,
+              );
+            }
+            result = {
+              section: args.section,
+              data: sectionData,
+              availableSections: Object.keys(config),
+            };
+          } else {
+            result = {
+              sections: Object.keys(config),
+              config: config,
+              note: "Use the 'section' parameter to get specific sections like 'color', 'font', 'spacing', etc.",
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        }
+
+        case "update_theme_config": {
+          if (!args.path) {
+            throw new Error(
+              "Path is required (e.g., 'color.primary', 'font.copy.font-size')",
+            );
+          }
+          if (args.value === undefined || args.value === null) {
+            throw new Error("Value is required");
+          }
+
+          const config = await readBrandingJson();
+          const oldValue = getNestedValue(config, args.path);
+
+          if (oldValue === undefined) {
+            throw new Error(`Path not found: ${args.path}`);
+          }
+
+          setNestedValue(config, args.path, args.value);
+          await writeBrandingJson(config);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    message: "Theme configuration updated successfully",
+                    path: args.path,
+                    oldValue: oldValue,
+                    newValue: args.value,
+                    note: "Remember to regenerate CSS tokens if needed",
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "list_theme_values": {
+          const config = await readBrandingJson();
+          const flatValues = flattenJsonConfig(config);
+
+          let filtered = flatValues;
+          if (args.filter) {
+            const filterLower = args.filter.toLowerCase();
+            filtered = flatValues.filter(
+              (item) =>
+                item.path.toLowerCase().includes(filterLower) ||
+                String(item.value).toLowerCase().includes(filterLower),
+            );
+          }
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    filter: args.filter || "none",
+                    totalValues: filtered.length,
+                    values: filtered,
+                    note: "Use update_theme_config with the 'path' to modify values",
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "get_factor_tokens": {
+          const tokens = await parseAllTokens("branding");
+          const factorTokens = [];
+
+          const factorPatterns = [/factor/i, /ratio/i, /scale/i, /multiplier/i];
+
+          for (const [tokenName, data] of tokens.entries()) {
+            const isFactorToken = factorPatterns.some((pattern) =>
+              pattern.test(tokenName),
+            );
+
+            if (!isFactorToken) continue;
+
+            // Filter by type if specified
+            if (args.type) {
+              if (!tokenName.toLowerCase().includes(args.type.toLowerCase())) {
+                continue;
+              }
+            }
+
+            factorTokens.push({
+              name: tokenName,
+              value: data.value,
+              file: data.file,
+              category: data.category,
+              description: getFactorDescription(tokenName),
+              ...(data.section && { section: data.section }),
+              ...(data.comment && { comment: data.comment }),
+            });
+          }
+
+          factorTokens.sort((a, b) => a.name.localeCompare(b.name));
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    type: args.type || "all",
+                    totalTokens: factorTokens.length,
+                    note: "Factor tokens are multipliers that affect other token calculations",
+                    tokens: factorTokens,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "get_breakpoint_tokens": {
+          const tokens = await parseAllTokens("branding");
+          const breakpointTokens = [];
+
+          for (const [tokenName, data] of tokens.entries()) {
+            const isBreakpoint =
+              tokenName.includes("breakpoint") ||
+              tokenName.includes("bp-") ||
+              tokenName.includes("-bp");
+
+            if (!isBreakpoint) continue;
+
+            breakpointTokens.push({
+              name: tokenName,
+              value: data.value,
+              file: data.file,
+              category: data.category,
+              ...(data.section && { section: data.section }),
+              ...(data.comment && { comment: data.comment }),
+            });
+          }
+
+          // Also get breakpoints from JSON config
+          const config = await readBrandingJson();
+          if (config.breakpoints) {
+            for (const [bpName, bpValue] of Object.entries(
+              config.breakpoints,
+            )) {
+              breakpointTokens.push({
+                name: `breakpoint.${bpName}`,
+                value: bpValue,
+                file: "branding-token.json",
+                category: "json-config",
+                source: "json",
+              });
+            }
+          }
+
+          breakpointTokens.sort((a, b) => a.name.localeCompare(b.name));
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    totalTokens: breakpointTokens.length,
+                    note: "Breakpoints define responsive design boundaries",
+                    tokens: breakpointTokens,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "get_duration_tokens": {
+          const tokens = await parseAllTokens("branding");
+          const durationTokens = [];
+
+          for (const [tokenName, data] of tokens.entries()) {
+            const isDuration =
+              tokenName.includes("duration") ||
+              tokenName.includes("timing") ||
+              tokenName.includes("transition") ||
+              tokenName.includes("animation");
+
+            if (!isDuration) continue;
+
+            durationTokens.push({
+              name: tokenName,
+              value: data.value,
+              file: data.file,
+              category: data.category,
+              ...(data.section && { section: data.section }),
+              ...(data.comment && { comment: data.comment }),
+            });
+          }
+
+          durationTokens.sort((a, b) => a.name.localeCompare(b.name));
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    totalTokens: durationTokens.length,
+                    note: "Duration tokens control animation and transition timing",
+                    tokens: durationTokens,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        default:
+          throw new Error(`Unknown tool: ${name}`);
       }
-
-      default:
-        throw new Error(`Unknown tool: ${name}`);
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                error: error.message,
+                tool: name,
+                timestamp: new Date().toISOString(),
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+        isError: true,
+      };
     }
-  } catch (error) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            {
-              error: error.message,
-              tool: name,
-              timestamp: new Date().toISOString(),
-            },
-            null,
-            2,
-          ),
-        },
-      ],
-      isError: true,
-    };
-  }
-});
+  });
+} // end registerHandlers
 
 // Start the server
 async function main() {
@@ -1717,15 +1731,120 @@ async function main() {
     // Verify tokens directory exists
     await fs.access(TOKENS_DIR);
 
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-
-    console.error("Design Tokens MCP Server v3.0.0 running on stdio");
-    console.error(`Tokens directory: ${TOKENS_DIR}`);
-
-    // Log available files
+    const transportType = process.env.MCP_TRANSPORT || "stdio";
     const stats = await getTokenStats();
-    console.error(`Total tokens available: ${stats.totalTokens}`);
+
+    if (transportType === "http") {
+      // --- Streamable HTTP transport (for cloud / remote deployment) ---
+      const PORT = parseInt(process.env.PORT || "3000", 10);
+
+      // Track active transports by session ID
+      const transports = new Map();
+
+      const httpServer = createServer(async (req, res) => {
+        const url = new URL(req.url, `http://localhost:${PORT}`);
+
+        // Health check endpoint for Kamal / load balancer probes
+        if (url.pathname === "/health") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              status: "ok",
+              version: "3.0.0",
+              tokens: stats.totalTokens,
+            }),
+          );
+          return;
+        }
+
+        // MCP endpoint
+        if (url.pathname === "/mcp") {
+          // Check for existing session
+          const sessionId = req.headers["mcp-session-id"];
+          let transport;
+
+          if (sessionId && transports.has(sessionId)) {
+            // Reuse existing transport for this session
+            transport = transports.get(sessionId);
+          } else if (!sessionId && req.method === "POST") {
+            // New initialization request — create a new transport and server
+            transport = new StreamableHTTPServerTransport({
+              sessionIdGenerator: () => randomUUID(),
+            });
+
+            transport.onclose = () => {
+              if (transport.sessionId) {
+                transports.delete(transport.sessionId);
+              }
+            };
+
+            // Each session gets its own Server instance so state is isolated
+            const sessionServer = new Server(
+              { name: "design-tokens-server", version: "3.0.0" },
+              { capabilities: { tools: {} } },
+            );
+
+            // Re-register the same request handlers on the session server
+            registerHandlers(sessionServer);
+
+            await sessionServer.connect(transport);
+
+            if (transport.sessionId) {
+              transports.set(transport.sessionId, transport);
+            }
+          } else {
+            // Invalid request — no session header on a non-init request
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({
+                error:
+                  "Bad Request: No valid session. Send an initialization request first.",
+              }),
+            );
+            return;
+          }
+
+          await transport.handleRequest(req, res);
+          return;
+        }
+
+        // Fallback — unknown route
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Not Found" }));
+      });
+
+      httpServer.listen(PORT, () => {
+        console.error(
+          `Design Tokens MCP Server v3.0.0 running on HTTP port ${PORT}`,
+        );
+        console.error(`  MCP endpoint:   http://localhost:${PORT}/mcp`);
+        console.error(`  Health check:   http://localhost:${PORT}/health`);
+        console.error(`  Tokens directory: ${TOKENS_DIR}`);
+        console.error(`  Total tokens available: ${stats.totalTokens}`);
+      });
+
+      // Graceful shutdown
+      const shutdown = async () => {
+        console.error("Shutting down…");
+        for (const transport of transports.values()) {
+          await transport.close();
+        }
+        transports.clear();
+        httpServer.close();
+        process.exit(0);
+      };
+      process.on("SIGTERM", shutdown);
+      process.on("SIGINT", shutdown);
+    } else {
+      // --- stdio transport (for local MCP clients like Claude Desktop) ---
+      registerHandlers(server);
+      const transport = new StdioServerTransport();
+      await server.connect(transport);
+
+      console.error("Design Tokens MCP Server v3.0.0 running on stdio");
+      console.error(`Tokens directory: ${TOKENS_DIR}`);
+      console.error(`Total tokens available: ${stats.totalTokens}`);
+    }
   } catch (error) {
     console.error("Failed to start server:", error.message);
     process.exit(1);

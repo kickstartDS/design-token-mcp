@@ -107,9 +107,11 @@ kamal remove
 
 ## Environment Variables
 
-| Variable   | Description      | Default      |
-| ---------- | ---------------- | ------------ |
-| `NODE_ENV` | Environment mode | `production` |
+| Variable        | Description                         | Default      |
+| --------------- | ----------------------------------- | ------------ |
+| `NODE_ENV`      | Environment mode                    | `production` |
+| `MCP_TRANSPORT` | Transport mode: `stdio` or `http`   | `stdio`      |
+| `PORT`          | HTTP server port (when `http` mode) | `3000`       |
 
 ## Container Registry
 
@@ -131,9 +133,43 @@ registry:
 
 ## Health Checks
 
-The container includes a health check that verifies the Node.js process can start properly. Since MCP servers communicate via stdio (not HTTP), traditional HTTP health checks don't apply.
+The container exposes a `/health` endpoint on port 3000 that returns JSON:
 
-## Troubleshooting
+```json
+{ "status": "ok", "version": "3.0.0", "tokens": 242 }
+```
+
+This is used by Docker's `HEALTHCHECK`, Kamal, and load balancers.
+
+## Transport Modes
+
+The server supports two transport modes via the `MCP_TRANSPORT` environment variable:
+
+| Mode    | Use Case                           | Set via                           |
+| ------- | ---------------------------------- | --------------------------------- |
+| `stdio` | Local MCP clients (Claude Desktop) | Default, or `MCP_TRANSPORT=stdio` |
+| `http`  | Cloud / remote deployment via HTTP | `MCP_TRANSPORT=http`              |
+
+In **HTTP mode** the server uses the MCP Streamable HTTP transport (from the `@modelcontextprotocol/sdk`). It:
+
+- Listens on the port specified by `PORT` (default `3000`)
+- Exposes `/mcp` for MCP protocol messages (supports SSE streaming)
+- Exposes `/health` for health checks
+- Manages per-session state with unique session IDs
+- Works behind reverse proxies like Traefik (configured via Kamal)
+
+MCP clients connect using a Streamable HTTP URL rather than launching a local process:
+
+```json
+{
+  "mcpServers": {
+    "design-tokens": {
+      "type": "streamable-http",
+      "url": "https://tokens.yourdomain.com/mcp"
+    }
+  }
+}
+```
 
 ### Container won't start
 
@@ -169,14 +205,9 @@ dig your-domain.com
 
 ## MCP Server Notes
 
-MCP (Model Context Protocol) servers communicate via stdio, not HTTP. This means:
+The server uses the MCP Streamable HTTP transport for cloud deployments, which fully supports:
 
-- The container runs interactively with stdin/stdout
-- Traditional load balancing doesn't apply
-- Each MCP client connects to its own server instance
-
-For production use with multiple clients, consider:
-
-1. Running multiple container instances
-2. Implementing HTTP-SSE transport (MCP 2024-11-05 spec)
-3. Using a message broker for scaling
+- Multiple concurrent client sessions
+- Server-Sent Events (SSE) for streaming responses
+- Standard HTTP load balancing and reverse proxying
+- Health checks for orchestration tools (Docker, Kamal, Kubernetes)

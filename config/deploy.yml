@@ -28,6 +28,8 @@ registry:
 env:
   clear:
     NODE_ENV: production
+    MCP_TRANSPORT: http
+    PORT: "3000"
   secret:
     # Add any secret environment variables here
     # - MCP_SECRET_KEY
@@ -41,6 +43,7 @@ builder:
     NODE_ENV: production
 
 # Health check configuration
+# Uses the /health endpoint exposed by the Streamable HTTP transport
 healthcheck:
   path: /health
   port: 3000

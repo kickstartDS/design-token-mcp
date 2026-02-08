@@ -38,10 +38,14 @@ USER nodejs
 
 # Environment variables
 ENV NODE_ENV=production
+ENV MCP_TRANSPORT=http
+ENV PORT=3000
 
-# Health check - MCP servers communicate via stdio, so we check if process can start
+# Expose the HTTP port for Streamable HTTP transport
+EXPOSE 3000
+
+# Health check against the /health endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD node -e "require('./index.js')" || exit 1
+    CMD wget --quiet --tries=1 --spider http://localhost:3000/health || exit 1
 
-# MCP servers use stdio for communication
 CMD ["node", "index.js"]
