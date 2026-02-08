@@ -11,7 +11,6 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1738,9 +1737,6 @@ async function main() {
       // --- Streamable HTTP transport (for cloud / remote deployment) ---
       const PORT = parseInt(process.env.PORT || "3000", 10);
 
-      // Track active transports by session ID
-      const transports = new Map();
-
       const httpServer = createServer(async (req, res) => {
         const url = new URL(req.url, `http://localhost:${PORT}`);
 
@@ -1759,50 +1755,25 @@ async function main() {
 
         // MCP endpoint
         if (url.pathname === "/mcp") {
-          // Check for existing session
-          const sessionId = req.headers["mcp-session-id"];
-          let transport;
+          // Stateless mode: every request gets its own transport and server.
+          // This avoids session-affinity issues behind reverse proxies / load
+          // balancers and survives container restarts without stale sessions.
+          const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined, // stateless – no session ID
+          });
 
-          if (sessionId && transports.has(sessionId)) {
-            // Reuse existing transport for this session
-            transport = transports.get(sessionId);
-          } else if (!sessionId && req.method === "POST") {
-            // New initialization request — create a new transport and server
-            transport = new StreamableHTTPServerTransport({
-              sessionIdGenerator: () => randomUUID(),
-            });
+          transport.onclose = () => {
+            // nothing to clean up in stateless mode
+          };
 
-            transport.onclose = () => {
-              if (transport.sessionId) {
-                transports.delete(transport.sessionId);
-              }
-            };
+          const sessionServer = new Server(
+            { name: "design-tokens-server", version: "3.0.0" },
+            { capabilities: { tools: {} } },
+          );
 
-            // Each session gets its own Server instance so state is isolated
-            const sessionServer = new Server(
-              { name: "design-tokens-server", version: "3.0.0" },
-              { capabilities: { tools: {} } },
-            );
+          registerHandlers(sessionServer);
 
-            // Re-register the same request handlers on the session server
-            registerHandlers(sessionServer);
-
-            await sessionServer.connect(transport);
-
-            if (transport.sessionId) {
-              transports.set(transport.sessionId, transport);
-            }
-          } else {
-            // Invalid request — no session header on a non-init request
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(
-              JSON.stringify({
-                error:
-                  "Bad Request: No valid session. Send an initialization request first.",
-              }),
-            );
-            return;
-          }
+          await sessionServer.connect(transport);
 
           await transport.handleRequest(req, res);
           return;
@@ -1826,10 +1797,6 @@ async function main() {
       // Graceful shutdown
       const shutdown = async () => {
         console.error("Shutting down…");
-        for (const transport of transports.values()) {
-          await transport.close();
-        }
-        transports.clear();
         httpServer.close();
         process.exit(0);
       };

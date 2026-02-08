@@ -105,6 +105,127 @@ kamal traefik logs
 kamal remove
 ```
 
+## Verifying the Deployment
+
+After a successful Kamal deploy, you can verify everything is working using cURL from your terminal. Replace `YOUR_DOMAIN` with the domain you configured for `MCP_PUBLIC_DOMAIN`.
+
+### 1. Health check
+
+```bash
+curl -s https://YOUR_DOMAIN/health | jq .
+```
+
+Expected response:
+
+```json
+{
+  "status": "ok",
+  "version": "3.0.0",
+  "tokens": 242
+}
+```
+
+- `"status": "ok"` — the container is running
+- `"tokens"` > 0 — token files were loaded successfully
+
+### 2. MCP initialize (start a session)
+
+Send a JSON-RPC `initialize` request to the `/mcp` endpoint to establish a session:
+
+```bash
+curl -si -X POST https://YOUR_DOMAIN/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-03-26",
+      "capabilities": {},
+      "clientInfo": { "name": "curl-test", "version": "1.0.0" }
+    }
+  }'
+```
+
+Look for a response containing `"serverInfo"` with `"name": "design-tokens-server"` and a `Mcp-Session-Id` response header. Save that session ID for subsequent requests:
+
+```bash
+# Extract just the session ID header
+curl -si -X POST https://YOUR_DOMAIN/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-03-26",
+      "capabilities": {},
+      "clientInfo": { "name": "curl-test", "version": "1.0.0" }
+    }
+  }' 2>&1 | grep -i mcp-session-id
+```
+
+### 3. List available tools
+
+Using the session ID from step 2, list all registered tools:
+
+```bash
+curl -s -X POST https://YOUR_DOMAIN/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: <SESSION_ID>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/list",
+    "params": {}
+  }'
+```
+
+You should see tools like `get_token`, `get_token_stats`, `get_tokens_by_type`, `get_color_palette`, `get_typography_tokens`, etc.
+
+### 4. Call a tool
+
+Test that the server can read and parse token files by calling `get_token_stats`:
+
+```bash
+curl -s -X POST https://YOUR_DOMAIN/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: <SESSION_ID>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "get_token_stats",
+      "arguments": {}
+    }
+  }'
+```
+
+This should return token counts by file and category.
+
+### 5. Verify unknown routes return 404
+
+```bash
+curl -s https://YOUR_DOMAIN/nonexistent | jq .
+```
+
+Expected: `{"error": "Not Found"}`
+
+### Verification checklist
+
+| Check                     | Expected                  | What it confirms                |
+| ------------------------- | ------------------------- | ------------------------------- |
+| `GET /health` returns 200 | `{"status":"ok", ...}`    | Container is up, tokens loaded  |
+| `POST /mcp` initialize    | Server info + session ID  | MCP protocol is working         |
+| `tools/list`              | Array of tool definitions | Handler registration is correct |
+| `tools/call`              | Token statistics data     | File I/O inside container works |
+| Unknown route             | `{"error":"Not Found"}`   | Routing logic is correct        |
+
 ## Environment Variables
 
 | Variable        | Description                         | Default      |
