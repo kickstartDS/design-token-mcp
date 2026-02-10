@@ -11,6 +11,8 @@ A production-ready Model Context Protocol (MCP) server for managing CSS Custom P
 - ✏️ **Typography Tools** - Query font families, weights, sizes, and line heights
 - 📐 **Spacing Tools** - Get spacing tokens by size or type
 - 🔄 **Update Tokens** - Modify token values and persist changes
+- 🖼️ **Theme from Image** - Generate a branding theme from a website screenshot or design image using LLM vision
+- 🌐 **Theme from CSS** - Extract a branding theme by fetching and analyzing a website's CSS
 - ⚡ **Pagination** - Handle large token sets efficiently
 
 ## Supported Token Files
@@ -93,7 +95,7 @@ For **remote** use (Streamable HTTP):
 }
 ```
 
-## Available Tools (11 total)
+## Available Tools (13 total)
 
 ### Core Tools
 
@@ -221,6 +223,50 @@ Update a token value in its source file.
 }
 ```
 
+### Theme Generation Tools
+
+#### `generate_theme_from_image`
+
+Analyze a website screenshot or design image to generate a branding theme. Accepts a base64-encoded image or an image URL. Returns the image for LLM vision analysis alongside the current theme schema with field descriptions and tips.
+
+```json
+{ "imageUrl": "https://example.com/screenshot.png" }
+```
+
+Or with base64:
+
+```json
+{ "imageBase64": "iVBORw0KGgo...", "mimeType": "image/png" }
+```
+
+Supported formats: `image/png`, `image/jpeg`, `image/webp`
+
+#### `extract_theme_from_css`
+
+Fetch all CSS from a website (inline `<style>` blocks and linked `<link rel="stylesheet">` stylesheets) and return it for analysis. Extracts exact color values, font families, font sizes, CSS custom properties, and more.
+
+```json
+{ "url": "https://example.com" }
+```
+
+With full raw CSS included:
+
+```json
+{
+  "url": "https://example.com",
+  "includeRawCSS": true,
+  "maxStylesheets": 10
+}
+```
+
+Returns:
+
+- Pre-parsed summary (unique hex/RGB/HSL colors, font families, custom property count)
+- `:root` / `html` CSS custom properties (most valuable for theming)
+- All CSS custom properties found (up to 200)
+- Current theme schema with field descriptions
+- Optionally, the full raw CSS text
+
 ## Token Architecture
 
 The design token system follows a layered architecture:
@@ -265,6 +311,34 @@ The design token system follows a layered architecture:
 
 ```
 1. get_tokens_by_type { type: "interactive", file: "background-color" }
+```
+
+### Generate a theme from a website screenshot
+
+```
+1. generate_theme_from_image { imageUrl: "https://example.com/screenshot.png" }
+   → LLM analyzes the image using vision
+2. update_theme_config { path: "color.primary", value: "#extracted-color" }
+   → Apply each extracted value
+```
+
+### Generate a theme from a website's CSS
+
+```
+1. extract_theme_from_css { url: "https://example.com" }
+   → Returns parsed CSS with colors, fonts, custom properties
+2. update_theme_config { path: "color.primary", value: "#exact-color-from-css" }
+   → Apply each extracted value
+```
+
+### Combine image + CSS for best results
+
+```
+1. extract_theme_from_css { url: "https://example.com" }
+   → Get exact values (colors, font families, sizes)
+2. generate_theme_from_image { imageUrl: "https://screenshot-url.png" }
+   → Get visual cues (spacing density, personality, layout rhythm)
+3. update_theme_config for each value
 ```
 
 ## Error Handling

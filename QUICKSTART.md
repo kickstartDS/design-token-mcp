@@ -76,21 +76,30 @@ Once connected to an MCP client (like Claude), you can use natural language:
 - "Change the primary color to #4075d0"
 - "Update ks-brand-color-bg to #f5f5f5"
 
-## Available Tools (11 total)
+### Generate a Theme from an Image or Website
 
-| Tool                    | Purpose                                               |
-| ----------------------- | ----------------------------------------------------- |
-| `get_token`             | Get a specific token's value                          |
-| `list_tokens`           | List tokens with filters (file, category, prefix)     |
-| `list_files`            | Show all token files with counts                      |
-| `get_token_stats`       | Get token distribution statistics                     |
-| `search_tokens`         | Search by pattern in names/values                     |
-| `get_tokens_by_type`    | Filter by semantic type (interactive, inverted, etc.) |
-| `get_color_palette`     | Get colors by type (primary, positive, etc.)          |
-| `get_typography_tokens` | Get font-related tokens                               |
-| `get_spacing_tokens`    | Get spacing tokens by size/type                       |
-| `get_branding_tokens`   | Get core editable brand tokens                        |
-| `update_token`          | Modify a token value                                  |
+- "Generate a branding theme from this screenshot" (attach an image)
+- "Extract a theme from https://example.com based on its CSS"
+- "Analyze the CSS of https://example.com and create matching branding tokens"
+- "Look at this website image and suggest branding tokens that match its style"
+
+## Available Tools (13 total)
+
+| Tool                        | Purpose                                               |
+| --------------------------- | ----------------------------------------------------- |
+| `get_token`                 | Get a specific token's value                          |
+| `list_tokens`               | List tokens with filters (file, category, prefix)     |
+| `list_files`                | Show all token files with counts                      |
+| `get_token_stats`           | Get token distribution statistics                     |
+| `search_tokens`             | Search by pattern in names/values                     |
+| `get_tokens_by_type`        | Filter by semantic type (interactive, inverted, etc.) |
+| `get_color_palette`         | Get colors by type (primary, positive, etc.)          |
+| `get_typography_tokens`     | Get font-related tokens                               |
+| `get_spacing_tokens`        | Get spacing tokens by size/type                       |
+| `get_branding_tokens`       | Get core editable brand tokens                        |
+| `update_token`              | Modify a token value                                  |
+| `generate_theme_from_image` | Generate a theme from a screenshot or design image    |
+| `extract_theme_from_css`    | Extract a theme from a website's CSS                  |
 
 ## Verifying It Works
 

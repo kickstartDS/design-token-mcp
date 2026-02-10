@@ -127,6 +127,140 @@ async function fetchImageAsBase64(url) {
 }
 
 /**
+ * Fetch all CSS used by a website (inline styles and linked stylesheets).
+ * @param {string} url - The website URL to fetch CSS from
+ * @param {object} [options] - Options
+ * @param {number} [options.maxStylesheets=20] - Maximum number of external stylesheets to fetch
+ * @param {number} [options.timeoutMs=10000] - Timeout per fetch in milliseconds
+ * @returns {Promise<{inlineStyles: string[], linkedStylesheets: {href: string, css: string}[], summary: object}>}
+ */
+async function fetchWebsiteCSS(url, options = {}) {
+  const { maxStylesheets = 20, timeoutMs = 10000 } = options;
+
+  // Fetch the HTML page
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let html;
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    html = await response.text();
+  } catch (error) {
+    clearTimeout(timeout);
+    throw new Error(`Failed to fetch page: ${error.message}`);
+  }
+
+  // Extract inline <style> blocks
+  const inlineStyles = [];
+  const styleTagRegex = /<style[^>]*>([\s\S]*?)<\/style>/gi;
+  let styleMatch;
+  while ((styleMatch = styleTagRegex.exec(html)) !== null) {
+    const css = styleMatch[1].trim();
+    if (css.length > 0) {
+      inlineStyles.push(css);
+    }
+  }
+
+  // Extract <link rel="stylesheet"> hrefs
+  const linkHrefs = [];
+  const linkRegex =
+    /<link[^>]+rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi;
+  const linkRegexAlt =
+    /<link[^>]+href=["']([^"']+)["'][^>]*rel=["']stylesheet["'][^>]*>/gi;
+  let linkMatch;
+
+  while ((linkMatch = linkRegex.exec(html)) !== null) {
+    linkHrefs.push(linkMatch[1]);
+  }
+  while ((linkMatch = linkRegexAlt.exec(html)) !== null) {
+    if (!linkHrefs.includes(linkMatch[1])) {
+      linkHrefs.push(linkMatch[1]);
+    }
+  }
+
+  // Resolve relative URLs
+  const baseUrl = new URL(url);
+  const resolvedHrefs = linkHrefs
+    .slice(0, maxStylesheets)
+    .map((href) => {
+      try {
+        return new URL(href, baseUrl).toString();
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  // Fetch external stylesheets in parallel
+  const linkedStylesheets = await Promise.all(
+    resolvedHrefs.map(async (href) => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const resp = await fetch(href, { signal: ctrl.signal });
+        clearTimeout(t);
+        if (!resp.ok) {
+          return { href, css: null, error: `HTTP ${resp.status}` };
+        }
+        const css = await resp.text();
+        return { href, css };
+      } catch (err) {
+        clearTimeout(t);
+        return { href, css: null, error: err.message };
+      }
+    }),
+  );
+
+  // Build a summary of what was found
+  const successfulSheets = linkedStylesheets.filter((s) => s.css !== null);
+  const failedSheets = linkedStylesheets.filter((s) => s.css === null);
+
+  const allCSS = [...inlineStyles, ...successfulSheets.map((s) => s.css)].join(
+    "\n",
+  );
+
+  // Extract some quick stats from the combined CSS
+  const colorMatches = allCSS.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
+  const rgbMatches = allCSS.match(/rgba?\([^)]+\)/g) || [];
+  const hslMatches = allCSS.match(/hsla?\([^)]+\)/g) || [];
+  const fontFamilyMatches = allCSS.match(/font-family\s*:[^;}{]+/gi) || [];
+  const fontSizeMatches = allCSS.match(/font-size\s*:[^;}{]+/gi) || [];
+  const customPropertyMatches =
+    allCSS.match(/--[a-zA-Z0-9-]+\s*:[^;}{]+/g) || [];
+
+  // Deduplicate colors
+  const uniqueHexColors = [
+    ...new Set(colorMatches.map((c) => c.toLowerCase())),
+  ];
+  const uniqueRgbColors = [...new Set(rgbMatches)];
+  const uniqueHslColors = [...new Set(hslMatches)];
+  const uniqueFontFamilies = [
+    ...new Set(
+      fontFamilyMatches.map((f) => f.replace(/font-family\s*:\s*/i, "").trim()),
+    ),
+  ];
+
+  const summary = {
+    inlineStyleBlocks: inlineStyles.length,
+    linkedStylesheets: successfulSheets.length,
+    failedStylesheets: failedSheets.length,
+    totalCSSLength: allCSS.length,
+    uniqueHexColors: uniqueHexColors.slice(0, 50),
+    uniqueRgbColors: uniqueRgbColors.slice(0, 30),
+    uniqueHslColors: uniqueHslColors.slice(0, 30),
+    uniqueFontFamilies: uniqueFontFamilies.slice(0, 20),
+    fontSizeDeclarations: fontSizeMatches.length,
+    cssCustomProperties: customPropertyMatches.length,
+  };
+
+  return { inlineStyles, linkedStylesheets, summary };
+}
+
+/**
  * Build schema descriptions for branding-token.json fields to guide theme generation.
  * @returns {Object}
  */
@@ -1025,6 +1159,38 @@ function registerHandlers(srv) {
             },
           },
         },
+        {
+          name: "extract_theme_from_css",
+          description:
+            "Fetch all CSS from a website (inline <style> blocks and linked stylesheets) and return it for analysis. " +
+            "Extracts exact color values, font families, font sizes, spacing, border-radius, and CSS custom properties. " +
+            "Returns the raw CSS along with a pre-parsed summary of unique colors, fonts, and custom properties found. " +
+            "Use this data together with the theme schema to generate accurate branding token values via update_theme_config.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              url: {
+                type: "string",
+                description:
+                  "The website URL to extract CSS from (e.g., 'https://example.com')",
+              },
+              includeRawCSS: {
+                type: "boolean",
+                description:
+                  "Whether to include the full raw CSS text in the response (default: false). " +
+                  "The raw CSS can be very large. When false, only the summary and CSS custom properties are returned.",
+                default: false,
+              },
+              maxStylesheets: {
+                type: "number",
+                description:
+                  "Maximum number of external stylesheets to fetch (default: 20)",
+                default: 20,
+              },
+            },
+            required: ["url"],
+          },
+        },
       ],
     };
   });
@@ -1884,6 +2050,116 @@ function registerHandlers(srv) {
               },
             ],
           };
+        }
+
+        case "extract_theme_from_css": {
+          if (!args.url) {
+            throw new Error("URL is required");
+          }
+
+          const cssResult = await fetchWebsiteCSS(args.url, {
+            maxStylesheets: args.maxStylesheets || 20,
+          });
+
+          // Read the current theme config and schema for reference
+          const cssConfig = await readBrandingJson();
+          const cssSchemaDescription = getBrandingSchemaDescription();
+
+          // Collect all CSS custom properties (these are the most useful for theming)
+          const allCSS = [
+            ...cssResult.inlineStyles,
+            ...cssResult.linkedStylesheets
+              .filter((s) => s.css !== null)
+              .map((s) => s.css),
+          ].join("\n");
+
+          const customPropsRegex = /--([a-zA-Z0-9-]+)\s*:\s*([^;}{]+)/g;
+          const customProperties = [];
+          let cpMatch;
+          while ((cpMatch = customPropsRegex.exec(allCSS)) !== null) {
+            customProperties.push({
+              name: `--${cpMatch[1]}`,
+              value: cpMatch[2].trim(),
+            });
+          }
+
+          // Deduplicate custom properties (keep first occurrence)
+          const seenProps = new Set();
+          const uniqueCustomProperties = customProperties.filter((prop) => {
+            if (seenProps.has(prop.name)) return false;
+            seenProps.add(prop.name);
+            return true;
+          });
+
+          // Extract :root or html custom properties specifically (most relevant)
+          const rootBlockRegex = /(?::root|html)\s*\{([^}]+)\}/gi;
+          const rootProperties = [];
+          let rootMatch;
+          while ((rootMatch = rootBlockRegex.exec(allCSS)) !== null) {
+            const block = rootMatch[1];
+            const propRegex = /--([a-zA-Z0-9-]+)\s*:\s*([^;]+)/g;
+            let propMatch;
+            while ((propMatch = propRegex.exec(block)) !== null) {
+              rootProperties.push({
+                name: `--${propMatch[1]}`,
+                value: propMatch[2].trim(),
+              });
+            }
+          }
+
+          // Build the response
+          const responseContent = [];
+
+          responseContent.push({
+            type: "text",
+            text: JSON.stringify(
+              {
+                instruction:
+                  "Analyze the CSS extracted from this website and generate a branding theme. " +
+                  "The CSS contains exact color values, font families, font sizes, spacing, and other design properties. " +
+                  "Map these to the branding token schema and use 'update_theme_config' to apply each value. " +
+                  "Pay special attention to :root/html CSS custom properties and the most frequently used values.",
+                sourceUrl: args.url,
+                summary: cssResult.summary,
+                rootCustomProperties:
+                  rootProperties.length > 0
+                    ? rootProperties
+                    : "No :root custom properties found",
+                allCustomProperties: uniqueCustomProperties.slice(0, 200),
+                currentTheme: cssConfig,
+                schemaDescription: cssSchemaDescription,
+                availablePaths: Object.keys(cssSchemaDescription),
+                tips: [
+                  "CSS custom properties (especially in :root) are the most reliable source for theme colors",
+                  "Look for properties named with 'primary', 'brand', 'accent' for the primary color",
+                  "The most commonly declared font-family is likely the body font",
+                  "Check for design system naming patterns (e.g., --color-primary, --font-base-size)",
+                  "border-radius values indicate the design's corner rounding preference",
+                  "If the site uses a CSS framework, its custom properties often define the complete palette",
+                ],
+              },
+              null,
+              2,
+            ),
+          });
+
+          // Optionally include the full raw CSS
+          if (args.includeRawCSS) {
+            // Truncate if extremely large to avoid overwhelming the context
+            const maxCSSLength = 200_000;
+            const truncatedCSS =
+              allCSS.length > maxCSSLength
+                ? allCSS.slice(0, maxCSSLength) +
+                  `\n\n/* ... truncated (${allCSS.length - maxCSSLength} chars omitted) */`
+                : allCSS;
+
+            responseContent.push({
+              type: "text",
+              text: `--- RAW CSS (${cssResult.summary.linkedStylesheets} stylesheets + ${cssResult.summary.inlineStyleBlocks} inline blocks) ---\n\n${truncatedCSS}`,
+            });
+          }
+
+          return { content: responseContent };
         }
 
         default:
