@@ -91,6 +91,100 @@ const TOKEN_FILES = {
 };
 
 /**
+ * Fetch an image from a URL and return it as a base64 string.
+ * @param {string} url - The image URL to fetch
+ * @returns {Promise<{base64: string, mimeType: string}>}
+ */
+async function fetchImageAsBase64(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const contentType = response.headers.get("content-type") || "image/png";
+    const mimeType = contentType.split(";")[0].trim();
+
+    const supportedTypes = [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/gif",
+    ];
+    if (!supportedTypes.some((t) => mimeType.startsWith(t))) {
+      throw new Error(
+        `Unsupported image type: ${mimeType}. Supported: ${supportedTypes.join(", ")}`,
+      );
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+    return { base64, mimeType };
+  } catch (error) {
+    throw new Error(`Failed to fetch image from URL: ${error.message}`);
+  }
+}
+
+/**
+ * Build schema descriptions for branding-token.json fields to guide theme generation.
+ * @returns {Object}
+ */
+function getBrandingSchemaDescription() {
+  return {
+    "color.primary":
+      "Main brand color (hex). Extract the dominant brand/accent color from the image.",
+    "color.primary-inverted":
+      "Primary color for dark/inverted backgrounds (hex). Often the same as primary or a lighter tint.",
+    "color.background":
+      "Main background color (hex). Usually white or a very light neutral.",
+    "color.background-inverted":
+      "Dark/inverted background color (hex). Usually a very dark shade of the primary or a dark neutral.",
+    "color.foreground": "Main text color (hex). Usually very dark, near-black.",
+    "color.foreground-inverted":
+      "Text color on dark backgrounds (hex). Usually white or near-white.",
+    "color.link":
+      "Link color (hex). Often matches or is close to the primary color.",
+    "color.link-inverted":
+      "Link color on dark backgrounds (hex). A lighter/brighter variant of the link color.",
+    "color.positive": "Success/positive semantic color (hex, typically green).",
+    "color.positive-inverted": "Success color for dark backgrounds (hex).",
+    "color.informative":
+      "Informational semantic color (hex, typically blue/cyan).",
+    "color.informative-inverted":
+      "Informational color for dark backgrounds (hex).",
+    "color.notice":
+      "Warning/notice semantic color (hex, typically orange/yellow).",
+    "color.notice-inverted": "Warning color for dark backgrounds (hex).",
+    "color.negative": "Error/negative semantic color (hex, typically red).",
+    "color.negative-inverted": "Error color for dark backgrounds (hex).",
+    "font.display.family":
+      "Display/heading font family CSS stack. Identify the heading typeface style (serif, sans-serif, slab, geometric, etc.).",
+    "font.copy.family":
+      "Body/copy font family CSS stack. Identify the body text typeface style.",
+    "font.interface.family":
+      "UI/interface font family CSS stack. Often the same as copy.",
+    "font.mono.family": "Monospace font family CSS stack.",
+    "font.display.font-size":
+      "Base font size for display text in px (number, typically 16-20).",
+    "font.display.line-height":
+      "Line height for display text (number, typically 1.1-1.3).",
+    "font.display.scale-ratio":
+      "Type scale ratio for display headings (number, e.g. 1.25 for Major Third, 1.333 for Perfect Fourth).",
+    "font.copy.font-size":
+      "Base font size for body text in px (number, typically 16-18).",
+    "font.copy.line-height":
+      "Line height for body text (number, typically 1.4-1.6).",
+    "spacing.base":
+      "Base spacing unit in px (number, typically 8-16). Determines overall density.",
+    "spacing.scale-ratio":
+      "Spacing scale ratio (number, typically 1.25-1.5). Controls spacing progression.",
+    "border-radius":
+      "Default border radius as CSS value (e.g. '8px', '4px', '0px'). Rounded vs sharp corners.",
+  };
+}
+
+/**
  * Read the JSON branding configuration
  * @returns {Promise<Object>}
  */
@@ -904,6 +998,33 @@ function registerHandlers(srv) {
             properties: {},
           },
         },
+        {
+          name: "generate_theme_from_image",
+          description:
+            "Analyze a website screenshot or design image to generate a branding theme. Accepts either a base64-encoded image or an image URL. Returns the image for visual analysis alongside the current theme schema with field descriptions. Use your vision capabilities to examine the image, extract colors, typography cues, and spacing characteristics, then call update_theme_config for each value to apply the generated theme.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              imageBase64: {
+                type: "string",
+                description:
+                  "Base64-encoded image data (PNG, JPEG, or WebP). Provide this OR imageUrl, not both.",
+              },
+              imageUrl: {
+                type: "string",
+                description:
+                  "URL to a website screenshot or design image. The server will fetch and convert it. Provide this OR imageBase64, not both.",
+              },
+              mimeType: {
+                type: "string",
+                enum: ["image/png", "image/jpeg", "image/webp"],
+                description:
+                  "MIME type of the image when providing imageBase64 (default: 'image/png'). Ignored when using imageUrl (auto-detected).",
+                default: "image/png",
+              },
+            },
+          },
+        },
       ],
     };
   });
@@ -1690,6 +1811,72 @@ function registerHandlers(srv) {
                     totalTokens: durationTokens.length,
                     note: "Duration tokens control animation and transition timing",
                     tokens: durationTokens,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "generate_theme_from_image": {
+          if (!args.imageBase64 && !args.imageUrl) {
+            throw new Error(
+              "Either 'imageBase64' or 'imageUrl' must be provided",
+            );
+          }
+          if (args.imageBase64 && args.imageUrl) {
+            throw new Error(
+              "Provide either 'imageBase64' or 'imageUrl', not both",
+            );
+          }
+
+          let base64Data;
+          let mimeType;
+
+          if (args.imageUrl) {
+            // Fetch the image from the URL
+            const fetched = await fetchImageAsBase64(args.imageUrl);
+            base64Data = fetched.base64;
+            mimeType = fetched.mimeType;
+          } else {
+            // Use the provided base64 data directly
+            base64Data = args.imageBase64;
+            mimeType = args.mimeType || "image/png";
+          }
+
+          // Read the current theme config as the schema template
+          const config = await readBrandingJson();
+          const schemaDescription = getBrandingSchemaDescription();
+
+          return {
+            content: [
+              {
+                type: "image",
+                data: base64Data,
+                mimeType: mimeType,
+              },
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    instruction:
+                      "Analyze this image and generate a branding theme based on what you see. " +
+                      "Look at the colors, typography style, spacing density, and visual personality of the design. " +
+                      "Then use the 'update_theme_config' tool to apply each value. " +
+                      "The 'path' parameter uses dot notation matching the schema below.",
+                    currentTheme: config,
+                    schemaDescription: schemaDescription,
+                    availablePaths: Object.keys(schemaDescription),
+                    tips: [
+                      "Extract the dominant brand color for 'color.primary'",
+                      "Identify if headings use a serif or sans-serif typeface for 'font.display.family'",
+                      "Estimate spacing density: tight (base ~8-10), normal (12-14), generous (16-20)",
+                      "Observe corner rounding: sharp (0-2px), slightly rounded (4-6px), rounded (8-12px), pill (16px+)",
+                      "Derive inverted/dark-mode colors as lighter or more saturated variants of the base colors",
+                      "For font families, provide a full CSS font stack with appropriate fallbacks",
+                    ],
                   },
                   null,
                   2,
