@@ -94,24 +94,24 @@ Once connected to an MCP client (like Claude), you can use natural language:
 
 ## Available Tools (16 total)
 
-| Tool                         | Purpose                                               |
-| ---------------------------- | ----------------------------------------------------- |
-| `get_token`                  | Get a specific token's value                          |
-| `list_tokens`                | List tokens with filters (file, category, prefix)     |
-| `list_files`                 | Show all token files with counts                      |
-| `get_token_stats`            | Get token distribution statistics                     |
-| `search_tokens`              | Search by pattern in names/values                     |
-| `get_tokens_by_type`         | Filter by semantic type (interactive, inverted, etc.) |
-| `get_color_palette`          | Get colors by type (primary, positive, etc.)          |
-| `get_typography_tokens`      | Get font-related tokens                               |
-| `get_spacing_tokens`         | Get spacing tokens by size/type                       |
-| `get_branding_tokens`        | Get core editable brand tokens                        |
-| `update_token`               | Modify a token value                                  |
-| `generate_theme_from_image`  | Generate a theme from a screenshot or design image    |
-| `extract_theme_from_css`     | Extract a theme from a website's CSS                  |
-| `list_components`            | List all components with categories and token counts  |
-| `get_component_tokens`       | Get enriched tokens for a specific component          |
-| `search_component_tokens`    | Search component tokens by pattern, property, state   |
+| Tool                        | Purpose                                               |
+| --------------------------- | ----------------------------------------------------- |
+| `get_token`                 | Get a specific token's value                          |
+| `list_tokens`               | List tokens with filters (file, category, prefix)     |
+| `list_files`                | Show all token files with counts                      |
+| `get_token_stats`           | Get token distribution statistics                     |
+| `search_tokens`             | Search by pattern in names/values                     |
+| `get_tokens_by_type`        | Filter by semantic type (interactive, inverted, etc.) |
+| `get_color_palette`         | Get colors by type (primary, positive, etc.)          |
+| `get_typography_tokens`     | Get font-related tokens                               |
+| `get_spacing_tokens`        | Get spacing tokens by size/type                       |
+| `get_branding_tokens`       | Get core editable brand tokens                        |
+| `update_token`              | Modify a token value                                  |
+| `generate_theme_from_image` | Generate a theme from a screenshot or design image    |
+| `extract_theme_from_css`    | Extract a theme from a website's CSS                  |
+| `list_components`           | List all components with categories and token counts  |
+| `get_component_tokens`      | Get enriched tokens for a specific component          |
+| `search_component_tokens`   | Search component tokens by pattern, property, state   |
 
 ## Verifying It Works
 

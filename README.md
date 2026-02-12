@@ -39,17 +39,17 @@ A production-ready Model Context Protocol (MCP) server for managing CSS Custom P
 
 Component tokens control the visual styling of individual UI components. They are organized by category:
 
-| Category       | Components                                                                                |
-| -------------- | ----------------------------------------------------------------------------------------- |
-| **Navigation** | header, nav-flyout, nav-toggle, nav-topbar, breadcrumb, content-nav, pagination           |
-| **Content**    | headline, rich-text, text, image-text, image-story                                        |
-| **Blog**       | blog-aside, blog-head, blog-teaser                                                        |
-| **Cards**      | teaser-card, business-card, contact                                                       |
-| **Heroes**     | hero, cta, video-curtain                                                                  |
-| **Forms**      | button, checkbox, checkbox-group, radio, radio-group, text-field, text-area, select-field  |
-| **Layout**     | section, split-even, split-weighted, mosaic, gallery                                      |
-| **Data Display** | stats, features, faq, testimonials, downloads, logos                                    |
-| **Utility**    | divider, lightbox, slider, cookie-consent, footer, html                                   |
+| Category         | Components                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| **Navigation**   | header, nav-flyout, nav-toggle, nav-topbar, breadcrumb, content-nav, pagination           |
+| **Content**      | headline, rich-text, text, image-text, image-story                                        |
+| **Blog**         | blog-aside, blog-head, blog-teaser                                                        |
+| **Cards**        | teaser-card, business-card, contact                                                       |
+| **Heroes**       | hero, cta, video-curtain                                                                  |
+| **Forms**        | button, checkbox, checkbox-group, radio, radio-group, text-field, text-area, select-field |
+| **Layout**       | section, split-even, split-weighted, mosaic, gallery                                      |
+| **Data Display** | stats, features, faq, testimonials, downloads, logos                                      |
+| **Utility**      | divider, lightbox, slider, cookie-consent, footer, html                                   |
 
 ## Installation
 
@@ -269,6 +269,7 @@ Get all tokens for a specific component with structural metadata (element, varia
 ```
 
 Returns enriched token data including:
+
 - **element** — sub-element (e.g., `icon`, `label`)
 - **variant** — visual variant (e.g., `primary`, `clear`)
 - **cssProperty** — the CSS property being set (e.g., `color`, `background-color`)
