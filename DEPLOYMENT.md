@@ -120,7 +120,7 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "tokens": 242
 }
 ```
@@ -184,7 +184,7 @@ curl -s -X POST https://YOUR_DOMAIN/mcp \
   }'
 ```
 
-You should see tools like `get_token`, `get_token_stats`, `get_tokens_by_type`, `get_color_palette`, `get_typography_tokens`, etc.
+You should see 16 tools including `get_token`, `get_token_stats`, `get_tokens_by_type`, `get_color_palette`, `get_typography_tokens`, `list_components`, `get_component_tokens`, `search_component_tokens`, etc.
 
 ### 4. Call a tool
 
@@ -257,7 +257,7 @@ registry:
 The container exposes a `/health` endpoint on port 3000 that returns JSON:
 
 ```json
-{ "status": "ok", "version": "3.0.0", "tokens": 242 }
+{ "status": "ok", "version": "4.0.0", "tokens": 242 }
 ```
 
 This is used by Docker's `HEALTHCHECK`, Kamal, and load balancers.

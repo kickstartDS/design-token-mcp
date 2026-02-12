@@ -16,6 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const TOKENS_DIR = path.join(__dirname, "tokens");
+const COMPONENT_TOKENS_DIR = path.join(TOKENS_DIR, "componentToken");
 const BRANDING_JSON_FILE = path.join(TOKENS_DIR, "branding-token.json");
 
 // Token file categories with metadata
@@ -89,6 +90,299 @@ const TOKEN_FILES = {
     category: "scaling",
   },
 };
+
+// Component categories for grouping
+const COMPONENT_CATEGORIES = {
+  navigation: ["header", "nav-flyout", "nav-toggle", "nav-topbar", "breadcrumb", "content-nav", "pagination"],
+  content: ["headline", "rich-text", "text", "image-text", "image-story"],
+  blog: ["blog-aside", "blog-head", "blog-teaser"],
+  cards: ["teaser-card", "business-card", "contact"],
+  heroes: ["hero", "cta", "video-curtain"],
+  forms: ["button", "checkbox", "checkbox-group", "radio", "radio-group", "text-field", "text-area", "select-field"],
+  layout: ["section", "split-even", "split-weighted", "mosaic", "gallery"],
+  "data-display": ["stats", "features", "faq", "testimonials", "downloads", "logos"],
+  utility: ["divider", "lightbox", "slider", "cookie-consent", "footer", "html", "logo", "event-latest", "event-latest-teaser", "event-list-teaser"],
+};
+
+// Component token file registry — all 50 files
+const COMPONENT_TOKEN_FILES = {
+  "blog-aside":          { file: "blog-aside-tokens.scss",          category: "blog",         description: "Blog sidebar with author info, metadata, and share bar" },
+  "blog-head":           { file: "blog-head-tokens.scss",           category: "blog",         description: "Blog article header with date, headline, and spacing" },
+  "blog-teaser":         { file: "blog-teaser-tokens.scss",         category: "blog",         description: "Blog teaser card with image, topic, copy, and author metadata" },
+  "breadcrumb":          { file: "breadcrumb-tokens.scss",          category: "navigation",   description: "Breadcrumb navigation with icon separators" },
+  "business-card":       { file: "business-card-tokens.scss",       category: "cards",        description: "Business card with image, contact info, avatar, and links" },
+  "button":              { file: "button-tokens.scss",              category: "forms",        description: "Button with primary/secondary/tertiary variants and small/medium/large sizes" },
+  "checkbox-group":      { file: "checkbox-group-tokens.scss",      category: "forms",        description: "Checkbox group container with label styling" },
+  "checkbox":            { file: "checkbox-tokens.scss",            category: "forms",        description: "Checkbox input with checked/hover/focus states and label" },
+  "contact":             { file: "contact-tokens.scss",             category: "cards",        description: "Contact card with image, title, copy, and linked contact items" },
+  "content-nav":         { file: "content-nav-tokens.scss",         category: "navigation",   description: "Content navigation panel with links, image, and toggle" },
+  "cookie-consent":      { file: "cookie-consent-tokens.scss",      category: "utility",      description: "Cookie consent banner/dialog with options, toggles, and overlay" },
+  "cta":                 { file: "cta-tokens.scss",                 category: "heroes",       description: "Call-to-action section with headline, copy, image, and color variants" },
+  "divider":             { file: "divider-tokens.scss",             category: "utility",      description: "Visual divider/separator with accent variant" },
+  "downloads":           { file: "downloads-tokens.scss",           category: "data-display", description: "Downloads list with file items, icons, and hover states" },
+  "event-latest-teaser": { file: "event-latest-teaser-tokens.scss", category: "utility",      description: "Event latest teaser (placeholder — no tokens defined)" },
+  "event-latest":        { file: "event-latest-tokens.scss",        category: "utility",      description: "Event latest component (placeholder — no tokens defined)" },
+  "event-list-teaser":   { file: "event-list-teaser-tokens.scss",   category: "utility",      description: "Event list teaser (placeholder — no tokens defined)" },
+  "faq":                 { file: "faq-tokens.scss",                 category: "data-display", description: "FAQ accordion with summary/answer styling and expand icon" },
+  "features":            { file: "features-tokens.scss",            category: "data-display", description: "Features list with icons, titles, copy, and links at multiple sizes" },
+  "footer":              { file: "footer-tokens.scss",              category: "utility",      description: "Page footer with logo, byline, and navigation links" },
+  "gallery":             { file: "gallery-tokens.scss",             category: "layout",       description: "Image gallery with configurable tile sizes and aspect ratios" },
+  "header":              { file: "header-tokens.scss",              category: "navigation",   description: "Page header with logo, floating variant, and responsive spacing" },
+  "headline":            { file: "headline-tokens.scss",            category: "content",      description: "Headline component with h1–h4 levels, subheadline, and highlight styling" },
+  "hero":                { file: "hero-tokens.scss",                category: "heroes",       description: "Hero banner with textbox, overlay gradients, and responsive min-height" },
+  "html":                { file: "html-tokens.scss",                category: "utility",      description: "HTML embed container with consent overlay styling" },
+  "image-story":         { file: "image-story-tokens.scss",         category: "content",      description: "Image-story (storytelling) layout with copy and spacing" },
+  "image-text":          { file: "image-text-tokens.scss",          category: "content",      description: "Image-text block with standard and highlight variants" },
+  "lightbox":            { file: "lightbox-tokens.scss",            category: "utility",      description: "Lightbox overlay with counter, buttons, and placeholder background" },
+  "logo":                { file: "logo-tokens.scss",                category: "utility",      description: "Logo component (placeholder — no tokens defined)" },
+  "logos":               { file: "logos-tokens.scss",               category: "data-display", description: "Logo grid with tagline, responsive columns, and gap control" },
+  "mosaic":              { file: "mosaic-tokens.scss",              category: "layout",       description: "Mosaic layout with headline, copy, and content padding" },
+  "nav-flyout":          { file: "nav-flyout-tokens.scss",          category: "navigation",   description: "Flyout navigation menu with labels, sublist, transitions, and dimmed states" },
+  "nav-toggle":          { file: "nav-toggle-tokens.scss",          category: "navigation",   description: "Navigation hamburger toggle with floating variant" },
+  "nav-topbar":          { file: "nav-topbar-tokens.scss",          category: "navigation",   description: "Top navigation bar with label styling, icons, and floating variant" },
+  "pagination":          { file: "pagination-tokens.scss",          category: "navigation",   description: "Pagination controls with active state and responsive border" },
+  "radio-group":         { file: "radio-group-tokens.scss",         category: "forms",        description: "Radio button group container with label styling" },
+  "radio":               { file: "radio-tokens.scss",               category: "forms",        description: "Radio button input with checked/hover/focus states and label" },
+  "rich-text":           { file: "rich-text-tokens.scss",           category: "content",      description: "Rich text block with headline and body copy styling" },
+  "section":             { file: "section-tokens.scss",             category: "layout",       description: "Section layout with columns, gutters, content widths, backgrounds, and slider" },
+  "select-field":        { file: "select-field-tokens.scss",        category: "forms",        description: "Select dropdown with border states, label, and placeholder" },
+  "slider":              { file: "slider-tokens.scss",              category: "utility",      description: "Content slider with arrow and bullet navigation controls" },
+  "split-even":          { file: "split-even-tokens.scss",          category: "layout",       description: "Even-split layout with configurable gutters and content widths" },
+  "split-weighted":      { file: "split-weighted-tokens.scss",      category: "layout",       description: "Weighted-split layout with main/aside areas and gutter control" },
+  "stats":               { file: "stats-tokens.scss",               category: "data-display", description: "Statistics display with icon, number, topic, and copy styling" },
+  "teaser-card":         { file: "teaser-card-tokens.scss",         category: "cards",        description: "Teaser card with image, topic, label, copy, and compact variant" },
+  "testimonials":        { file: "testimonials-tokens.scss",        category: "data-display", description: "Testimonial quotes with source, byline, image, and quote icon" },
+  "text-area":           { file: "text-area-tokens.scss",           category: "forms",        description: "Textarea input with border states, label, and placeholder" },
+  "text-field":          { file: "text-field-tokens.scss",          category: "forms",        description: "Text input field with border states, shadow, label, and placeholder" },
+  "text":                { file: "text-tokens.scss",                category: "content",      description: "Text block with highlight variant and multi-column support" },
+  "video-curtain":       { file: "video-curtain-tokens.scss",       category: "heroes",       description: "Video curtain hero with headline, copy, textbox, and overlay gradients" },
+};
+
+// Reverse lookup: component slug → category
+const COMPONENT_CATEGORY_MAP = {};
+for (const [category, components] of Object.entries(COMPONENT_CATEGORIES)) {
+  for (const slug of components) {
+    COMPONENT_CATEGORY_MAP[slug] = category;
+  }
+}
+
+/**
+ * Classify a token value as literal, global-reference, component-reference, or calculated.
+ * @param {string} value - The raw CSS value string
+ * @returns {{valueType: string, referencedToken: string|null}}
+ */
+function classifyTokenValue(value) {
+  const trimmed = value.trim();
+
+  // Calculated values: calc() containing var()
+  if (/calc\s*\(/.test(trimmed) && /var\s*\(/.test(trimmed)) {
+    // Extract the first var() reference inside calc
+    const varMatch = trimmed.match(/var\(\s*(--[a-zA-Z0-9-]+)/);
+    return {
+      valueType: "calculated",
+      referencedToken: varMatch ? varMatch[1] : null,
+    };
+  }
+
+  // var() references
+  const varMatch = trimmed.match(/^var\(\s*(--[a-zA-Z0-9-]+)/);
+  if (varMatch) {
+    const refToken = varMatch[1];
+    // Component reference (--dsa-*) vs global reference (--ks-* or --l-*)
+    if (refToken.startsWith("--dsa-") || refToken.startsWith("--l-")) {
+      return { valueType: "component-reference", referencedToken: refToken };
+    }
+    return { valueType: "global-reference", referencedToken: refToken };
+  }
+
+  // Values that contain var() but aren't pure var() (e.g., shorthand values with multiple var())
+  if (/var\s*\(/.test(trimmed)) {
+    const firstVar = trimmed.match(/var\(\s*(--[a-zA-Z0-9-]+)/);
+    const refToken = firstVar ? firstVar[1] : null;
+    if (refToken && (refToken.startsWith("--dsa-") || refToken.startsWith("--l-"))) {
+      return { valueType: "component-reference", referencedToken: refToken };
+    }
+    if (refToken) {
+      return { valueType: "global-reference", referencedToken: refToken };
+    }
+  }
+
+  return { valueType: "literal", referencedToken: null };
+}
+
+/**
+ * Parse a component token name into structured parts.
+ *
+ * Token naming convention:
+ *   --dsa-{component}[__{element}][_{variant}]--{property}[_{state}]
+ *
+ * Also handles layout tokens: --l-{component}...
+ *
+ * @param {string} name - Full token name like "--dsa-button_primary--color_hover"
+ * @param {string} knownComponent - The known component slug for this file
+ * @returns {{element: string|null, variant: string|null, cssProperty: string, state: string|null}}
+ */
+function parseComponentTokenName(name, knownComponent) {
+  // States that can appear as suffixes
+  const STATES = ["hover", "active", "focus", "checked", "selected", "disabled", "open"];
+
+  // Strip the leading -- and the component prefix (--dsa-button or --l-split-even)
+  let remainder = name;
+  const prefixes = [`--dsa-${knownComponent}`, `--l-${knownComponent}`, `--dsa-${knownComponent.replace(/-/g, "_")}`];
+
+  let matched = false;
+  for (const prefix of prefixes) {
+    if (remainder.startsWith(prefix)) {
+      remainder = remainder.slice(prefix.length);
+      matched = true;
+      break;
+    }
+  }
+
+  if (!matched) {
+    // Fallback: try to strip any --dsa-{word} prefix
+    const fallback = remainder.match(/^--(?:dsa|l)-[a-z]+(?:-[a-z]+)*/);
+    if (fallback) {
+      remainder = remainder.slice(fallback[0].length);
+    }
+  }
+
+  let element = null;
+  let variant = null;
+  let cssProperty = "";
+  let state = null;
+
+  // Split on the LAST occurrence of "--" to get the property part
+  // e.g., "__copy--font_hover" → before="__copy", property part="font_hover"
+  const lastDoubleDash = remainder.lastIndexOf("--");
+  let beforeProperty = "";
+  let propertyPart = "";
+
+  if (lastDoubleDash > 0) {
+    beforeProperty = remainder.slice(0, lastDoubleDash);
+    propertyPart = remainder.slice(lastDoubleDash + 2);
+  } else if (lastDoubleDash === 0) {
+    // Starts with --, everything is property
+    propertyPart = remainder.slice(2);
+  } else {
+    // No --, could be just a suffix like "_small" with no property
+    propertyPart = remainder;
+  }
+
+  // Extract state from the property part (last _state)
+  for (const s of STATES) {
+    const suffix = `_${s}`;
+    if (propertyPart.endsWith(suffix)) {
+      state = s;
+      propertyPart = propertyPart.slice(0, -suffix.length);
+      break;
+    }
+  }
+
+  cssProperty = propertyPart || "unknown";
+
+  // Parse element and variant from beforeProperty
+  // Elements start with __ and variants start with _
+  if (beforeProperty) {
+    // Extract elements (e.g., "__copy", "__contact__icon")
+    const elementMatch = beforeProperty.match(/__([a-zA-Z0-9-]+(?:__[a-zA-Z0-9-]+)*)/);
+    if (elementMatch) {
+      element = elementMatch[1].replace(/__/g, ".");
+    }
+
+    // Extract variant (e.g., "_primary", "_color-neutral", "_highlight-text")
+    // Variant is indicated by a single _ NOT preceded by another _ and NOT part of __
+    const variantMatch = beforeProperty.match(/(?:^|[^_])_([a-zA-Z][a-zA-Z0-9-]*)/);
+    if (variantMatch) {
+      variant = variantMatch[1];
+    }
+  }
+
+  return { element, variant, cssProperty, state };
+}
+
+/**
+ * Parse all component token files and return enriched records.
+ * @param {string|null} componentFilter - Optional component slug to filter by
+ * @returns {Promise<Array<Object>>}
+ */
+async function parseAllComponentTokens(componentFilter = null) {
+  const results = [];
+
+  const filesToParse = componentFilter
+    ? (COMPONENT_TOKEN_FILES[componentFilter] ? { [componentFilter]: COMPONENT_TOKEN_FILES[componentFilter] } : {})
+    : COMPONENT_TOKEN_FILES;
+
+  for (const [slug, config] of Object.entries(filesToParse)) {
+    const filePath = path.join(COMPONENT_TOKENS_DIR, config.file);
+    try {
+      await fs.access(filePath);
+      const tokens = await parseTokenFile(filePath, config.category);
+
+      for (const [name, data] of tokens.entries()) {
+        const { valueType, referencedToken } = classifyTokenValue(data.value);
+        const parsed = parseComponentTokenName(name, slug);
+
+        results.push({
+          name,
+          value: data.value,
+          valueType,
+          component: slug,
+          element: parsed.element,
+          variant: parsed.variant,
+          cssProperty: parsed.cssProperty,
+          state: parsed.state,
+          file: config.file,
+          category: config.category,
+          referencedToken,
+          ...(data.section && { section: data.section }),
+          ...(data.comment && { comment: data.comment }),
+        });
+      }
+    } catch {
+      // File doesn't exist or is empty, skip
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Get component token statistics
+ * @returns {Promise<Object>}
+ */
+async function getComponentTokenStats() {
+  const allTokens = await parseAllComponentTokens();
+
+  const stats = {
+    totalTokens: allTokens.length,
+    byComponent: {},
+    byCategory: {},
+    byPropertyType: {},
+    byValueType: { literal: 0, "global-reference": 0, "component-reference": 0, calculated: 0 },
+    topReferencedGlobalTokens: {},
+  };
+
+  for (const token of allTokens) {
+    stats.byComponent[token.component] = (stats.byComponent[token.component] || 0) + 1;
+    stats.byCategory[token.category] = (stats.byCategory[token.category] || 0) + 1;
+    stats.byPropertyType[token.cssProperty] = (stats.byPropertyType[token.cssProperty] || 0) + 1;
+    stats.byValueType[token.valueType] = (stats.byValueType[token.valueType] || 0) + 1;
+
+    if (token.referencedToken && token.valueType === "global-reference") {
+      stats.topReferencedGlobalTokens[token.referencedToken] =
+        (stats.topReferencedGlobalTokens[token.referencedToken] || 0) + 1;
+    }
+  }
+
+  // Sort topReferencedGlobalTokens by count, keep top 20
+  const sortedRefs = Object.entries(stats.topReferencedGlobalTokens)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 20);
+  stats.topReferencedGlobalTokens = Object.fromEntries(sortedRefs);
+
+  return stats;
+}
 
 /**
  * Fetch an image from a URL and return it as a base64 string.
@@ -503,7 +797,7 @@ async function parseTokenFile(filePath, category) {
       }
 
       // Check for CSS custom property definition
-      const tokenMatch = line.match(/--([a-zA-Z0-9-]+)\s*:\s*([^;]+);/);
+      const tokenMatch = line.match(/--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/);
       if (tokenMatch) {
         const tokenName = `--${tokenMatch[1]}`;
         const tokenValue = tokenMatch[2].trim().replace(/\s+/g, " ");
@@ -755,7 +1049,7 @@ function getTokensBySemanticType(tokens, semanticType) {
 const server = new Server(
   {
     name: "design-tokens-server",
-    version: "3.0.0",
+    version: "4.0.0",
   },
   {
     capabilities: {
@@ -824,16 +1118,29 @@ function registerHandlers(srv) {
                   "Number of tokens to skip for pagination (default: 0)",
                 default: 0,
               },
+              includeComponentTokens: {
+                type: "boolean",
+                description:
+                  "Include component-level design tokens (--dsa-*) alongside global tokens (default: false)",
+                default: false,
+              },
             },
           },
         },
         {
           name: "list_files",
           description:
-            "List all available token files with their descriptions and token counts.",
+            "List all available token files with their descriptions and token counts. Includes both global token files and optionally component token files.",
           inputSchema: {
             type: "object",
-            properties: {},
+            properties: {
+              includeComponentFiles: {
+                type: "boolean",
+                description:
+                  "Include component token files from tokens/componentToken/ (default: true)",
+                default: true,
+              },
+            },
           },
         },
         {
@@ -871,6 +1178,12 @@ function registerHandlers(srv) {
                 type: "number",
                 description: "Maximum results to return (default: 50)",
                 default: 50,
+              },
+              includeComponentTokens: {
+                type: "boolean",
+                description:
+                  "Include component-level design tokens (--dsa-*) in search results (default: false)",
+                default: false,
               },
             },
             required: ["pattern"],
@@ -1191,6 +1504,118 @@ function registerHandlers(srv) {
             required: ["url"],
           },
         },
+        {
+          name: "list_components",
+          description:
+            "List all Design System components that have customizable design tokens. Returns component name, category, token count, and description for each. Use this as the starting point to discover which components can be customized, then use get_component_tokens to drill into a specific component.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              category: {
+                type: "string",
+                enum: [
+                  "navigation",
+                  "content",
+                  "blog",
+                  "cards",
+                  "heroes",
+                  "forms",
+                  "layout",
+                  "data-display",
+                  "utility",
+                  "all",
+                ],
+                description:
+                  "Filter by component category (default: 'all')",
+                default: "all",
+              },
+              includeEmpty: {
+                type: "boolean",
+                description:
+                  "Include components with 0 tokens (default: false)",
+                default: false,
+              },
+            },
+          },
+        },
+        {
+          name: "get_component_tokens",
+          description:
+            "Get all design tokens for a specific Design System component. Returns every CSS custom property defined for that component, organized with element/variant/state metadata and references to global tokens. Use 'list_components' first to discover available component names.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              component: {
+                type: "string",
+                description:
+                  "Component name/slug (e.g., 'button', 'hero', 'teaser-card', 'section'). Use list_components to discover valid names.",
+              },
+              element: {
+                type: "string",
+                description:
+                  "Filter to a specific sub-element (e.g., 'label', 'icon', 'copy', 'image')",
+              },
+              property: {
+                type: "string",
+                description:
+                  "Filter by CSS property type (e.g., 'color', 'font', 'gap', 'border', 'padding')",
+              },
+              statesOnly: {
+                type: "boolean",
+                description:
+                  "Only return tokens that have interactive states (hover, active, focus, checked). Default: false",
+                default: false,
+              },
+            },
+            required: ["component"],
+          },
+        },
+        {
+          name: "search_component_tokens",
+          description:
+            "Search across all component-level design tokens by pattern. Searches token names, values, component names, and comments. Useful for finding all tokens related to a CSS property (e.g., 'border-radius'), a global token (e.g., 'ks-color-primary'), or a concept (e.g., 'hover').",
+          inputSchema: {
+            type: "object",
+            properties: {
+              pattern: {
+                type: "string",
+                description:
+                  "Search pattern (case-insensitive). Matches against token names, values, and comments.",
+              },
+              searchIn: {
+                type: "string",
+                enum: ["name", "value", "both"],
+                description: "Where to search (default: 'both')",
+                default: "both",
+              },
+              component: {
+                type: "string",
+                description: "Limit search to a specific component",
+              },
+              category: {
+                type: "string",
+                enum: [
+                  "navigation",
+                  "content",
+                  "blog",
+                  "cards",
+                  "heroes",
+                  "forms",
+                  "layout",
+                  "data-display",
+                  "utility",
+                ],
+                description: "Limit search to a component category",
+              },
+              limit: {
+                type: "number",
+                description: "Maximum results to return (default: 50)",
+                default: 50,
+              },
+            },
+            required: ["pattern"],
+          },
+        },
       ],
     };
   });
@@ -1274,6 +1699,23 @@ function registerHandlers(srv) {
             }),
           );
 
+          // Merge component tokens if requested
+          if (args.includeComponentTokens) {
+            const componentTokens = await parseAllComponentTokens();
+            for (const ct of componentTokens) {
+              filteredTokens.push({
+                name: ct.name,
+                value: ct.value,
+                file: ct.file,
+                category: ct.category,
+                ...(ct.section && { section: ct.section }),
+                ...(ct.comment && { comment: ct.comment }),
+                source: "component",
+                component: ct.component,
+              });
+            }
+          }
+
           // Apply category filter
           if (args.category) {
             const categoryPattern = args.category.toLowerCase();
@@ -1340,6 +1782,7 @@ function registerHandlers(srv) {
                 file: config.file,
                 description: config.description,
                 category: config.category,
+                type: "global",
                 tokenCount: tokens.size,
               });
             } catch {
@@ -1348,11 +1791,47 @@ function registerHandlers(srv) {
                 file: config.file,
                 description: config.description,
                 category: config.category,
+                type: "global",
                 tokenCount: 0,
                 status: "not found",
               });
             }
           }
+
+          // Include component token files
+          const includeComponents = args.includeComponentFiles !== false;
+          const componentFileStats = [];
+          if (includeComponents) {
+            for (const [slug, config] of Object.entries(COMPONENT_TOKEN_FILES)) {
+              const filePath = path.join(COMPONENT_TOKENS_DIR, config.file);
+              try {
+                await fs.access(filePath);
+                const tokens = await parseTokenFile(filePath, config.category);
+                componentFileStats.push({
+                  key: slug,
+                  file: `componentToken/${config.file}`,
+                  description: config.description,
+                  category: config.category,
+                  type: "component",
+                  component: slug,
+                  tokenCount: tokens.size,
+                });
+              } catch {
+                componentFileStats.push({
+                  key: slug,
+                  file: `componentToken/${config.file}`,
+                  description: config.description,
+                  category: config.category,
+                  type: "component",
+                  component: slug,
+                  tokenCount: 0,
+                  status: "not found",
+                });
+              }
+            }
+          }
+
+          const allFiles = [...fileStats, ...componentFileStats];
 
           return {
             content: [
@@ -1360,8 +1839,10 @@ function registerHandlers(srv) {
                 type: "text",
                 text: JSON.stringify(
                   {
-                    totalFiles: fileStats.length,
-                    files: fileStats,
+                    totalFiles: allFiles.length,
+                    globalFiles: fileStats.length,
+                    componentFiles: componentFileStats.length,
+                    files: allFiles,
                   },
                   null,
                   2,
@@ -1373,6 +1854,8 @@ function registerHandlers(srv) {
 
         case "get_token_stats": {
           const stats = await getTokenStats();
+          const componentStats = await getComponentTokenStats();
+          stats.componentTokens = componentStats;
           return {
             content: [
               {
@@ -1395,6 +1878,33 @@ function registerHandlers(srv) {
             args.searchIn || "both",
           );
 
+          // Mark global results
+          results = results.map((r) => ({ ...r, source: "global" }));
+
+          // Merge component tokens if requested
+          if (args.includeComponentTokens) {
+            const lowerPattern = args.pattern.toLowerCase();
+            const searchIn = args.searchIn || "both";
+            const componentTokens = await parseAllComponentTokens();
+            for (const ct of componentTokens) {
+              const matchName = (searchIn === "both" || searchIn === "name") && ct.name.toLowerCase().includes(lowerPattern);
+              const matchValue = (searchIn === "both" || searchIn === "value") && ct.value.toLowerCase().includes(lowerPattern);
+              const matchComment = searchIn === "both" && ct.comment && ct.comment.toLowerCase().includes(lowerPattern);
+              if (matchName || matchValue || matchComment) {
+                results.push({
+                  name: ct.name,
+                  value: ct.value,
+                  file: ct.file,
+                  category: ct.category,
+                  source: "component",
+                  component: ct.component,
+                  ...(ct.section && { section: ct.section }),
+                  ...(ct.comment && { comment: ct.comment }),
+                });
+              }
+            }
+          }
+
           results.sort((a, b) => a.name.localeCompare(b.name));
 
           const limit = args.limit || 50;
@@ -1409,6 +1919,7 @@ function registerHandlers(srv) {
                     pattern: args.pattern,
                     searchIn: args.searchIn || "both",
                     file: args.file || "all",
+                    includeComponentTokens: args.includeComponentTokens || false,
                     totalMatches: results.length,
                     returned: limitedResults.length,
                     results: limitedResults,
@@ -2162,6 +2673,227 @@ function registerHandlers(srv) {
           return { content: responseContent };
         }
 
+        case "list_components": {
+          const categoryFilter = args.category && args.category !== "all" ? args.category : null;
+          const includeEmpty = args.includeEmpty || false;
+          const componentEntries = [];
+
+          for (const [slug, config] of Object.entries(COMPONENT_TOKEN_FILES)) {
+            // Apply category filter
+            if (categoryFilter && config.category !== categoryFilter) continue;
+
+            const filePath = path.join(COMPONENT_TOKENS_DIR, config.file);
+            let tokenCount = 0;
+            let propertyTypes = [];
+            let hasResponsiveOverrides = false;
+
+            try {
+              await fs.access(filePath);
+              const content = await fs.readFile(filePath, "utf-8");
+              const tokens = await parseTokenFile(filePath, config.category);
+              tokenCount = tokens.size;
+
+              // Detect responsive overrides
+              hasResponsiveOverrides = /@container|@media/.test(content);
+
+              // Collect unique property types
+              const propSet = new Set();
+              for (const [name] of tokens.entries()) {
+                const parsed = parseComponentTokenName(name, slug);
+                propSet.add(parsed.cssProperty);
+              }
+              propertyTypes = Array.from(propSet).sort();
+            } catch {
+              // File doesn't exist
+            }
+
+            if (!includeEmpty && tokenCount === 0) continue;
+
+            componentEntries.push({
+              name: slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+              slug,
+              category: config.category,
+              file: config.file,
+              tokenCount,
+              description: config.description,
+              hasResponsiveOverrides,
+              tokenPropertyTypes: propertyTypes,
+            });
+          }
+
+          componentEntries.sort((a, b) => a.slug.localeCompare(b.slug));
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    totalComponents: componentEntries.length,
+                    category: categoryFilter || "all",
+                    components: componentEntries,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "get_component_tokens": {
+          if (!args.component) {
+            throw new Error("Component name is required. Use list_components to discover valid names.");
+          }
+
+          const slug = args.component.toLowerCase();
+          const config = COMPONENT_TOKEN_FILES[slug];
+
+          if (!config) {
+            // Suggest similar component names
+            const available = Object.keys(COMPONENT_TOKEN_FILES);
+            const suggestions = available.filter((s) =>
+              s.includes(slug) || slug.includes(s) || s.split("-").some((part) => slug.includes(part)),
+            ).slice(0, 5);
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    {
+                      error: `Component '${slug}' not found`,
+                      suggestions: suggestions.length > 0 ? suggestions : undefined,
+                      hint: "Use 'list_components' to discover available component names",
+                      availableCategories: Object.keys(COMPONENT_CATEGORIES),
+                    },
+                    null,
+                    2,
+                  ),
+                },
+              ],
+            };
+          }
+
+          let tokens = await parseAllComponentTokens(slug);
+
+          // Apply element filter
+          if (args.element) {
+            const el = args.element.toLowerCase();
+            tokens = tokens.filter((t) => t.element && t.element.toLowerCase().includes(el));
+          }
+
+          // Apply property filter
+          if (args.property) {
+            const prop = args.property.toLowerCase();
+            tokens = tokens.filter((t) => t.cssProperty.toLowerCase().includes(prop));
+          }
+
+          // Apply statesOnly filter
+          if (args.statesOnly) {
+            tokens = tokens.filter((t) => t.state !== null);
+          }
+
+          // Build summary
+          const variants = [...new Set(tokens.filter((t) => t.variant).map((t) => t.variant))];
+          const elements = [...new Set(tokens.filter((t) => t.element).map((t) => t.element))];
+          const states = [...new Set(tokens.filter((t) => t.state).map((t) => t.state))];
+          const propTypes = [...new Set(tokens.map((t) => t.cssProperty))];
+
+          tokens.sort((a, b) => a.name.localeCompare(b.name));
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    component: slug,
+                    file: config.file,
+                    category: config.category,
+                    description: config.description,
+                    totalTokens: tokens.length,
+                    filters: {
+                      element: args.element || null,
+                      property: args.property || null,
+                      statesOnly: args.statesOnly || false,
+                    },
+                    tokens,
+                    summary: {
+                      variants,
+                      elements,
+                      states,
+                      propertyTypes: propTypes,
+                    },
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "search_component_tokens": {
+          if (!args.pattern) {
+            throw new Error("Search pattern is required");
+          }
+
+          const lowerPattern = args.pattern.toLowerCase();
+          const searchIn = args.searchIn || "both";
+
+          // Load tokens — optionally filtered by component
+          let allTokens = await parseAllComponentTokens(args.component || null);
+
+          // Apply category filter
+          if (args.category) {
+            allTokens = allTokens.filter((t) => t.category === args.category);
+          }
+
+          // Apply search pattern
+          const results = [];
+          for (const token of allTokens) {
+            const matchName = (searchIn === "both" || searchIn === "name") && token.name.toLowerCase().includes(lowerPattern);
+            const matchValue = (searchIn === "both" || searchIn === "value") && token.value.toLowerCase().includes(lowerPattern);
+            const matchComment = searchIn === "both" && token.comment && token.comment.toLowerCase().includes(lowerPattern);
+            const matchComponent = searchIn === "both" && token.component.toLowerCase().includes(lowerPattern);
+
+            if (matchName || matchValue || matchComment || matchComponent) {
+              results.push(token);
+            }
+          }
+
+          // Sort by component, then name
+          results.sort((a, b) => {
+            const compCmp = a.component.localeCompare(b.component);
+            return compCmp !== 0 ? compCmp : a.name.localeCompare(b.name);
+          });
+
+          const limit = args.limit || 50;
+          const limitedResults = results.slice(0, limit);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    pattern: args.pattern,
+                    searchIn,
+                    component: args.component || "all",
+                    category: args.category || "all",
+                    totalMatches: results.length,
+                    returned: limitedResults.length,
+                    results: limitedResults,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
@@ -2209,7 +2941,7 @@ async function main() {
           res.end(
             JSON.stringify({
               status: "ok",
-              version: "3.0.0",
+              version: "4.0.0",
               tokens: stats.totalTokens,
             }),
           );
@@ -2230,7 +2962,7 @@ async function main() {
           };
 
           const sessionServer = new Server(
-            { name: "design-tokens-server", version: "3.0.0" },
+            { name: "design-tokens-server", version: "4.0.0" },
             { capabilities: { tools: {} } },
           );
 
@@ -2249,7 +2981,7 @@ async function main() {
 
       httpServer.listen(PORT, () => {
         console.error(
-          `Design Tokens MCP Server v3.0.0 running on HTTP port ${PORT}`,
+          `Design Tokens MCP Server v4.0.0 running on HTTP port ${PORT}`,
         );
         console.error(`  MCP endpoint:   http://localhost:${PORT}/mcp`);
         console.error(`  Health check:   http://localhost:${PORT}/health`);
@@ -2271,7 +3003,7 @@ async function main() {
       const transport = new StdioServerTransport();
       await server.connect(transport);
 
-      console.error("Design Tokens MCP Server v3.0.0 running on stdio");
+      console.error("Design Tokens MCP Server v4.0.0 running on stdio");
       console.error(`Tokens directory: ${TOKENS_DIR}`);
       console.error(`Total tokens available: ${stats.totalTokens}`);
     }

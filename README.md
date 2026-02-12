@@ -1,12 +1,13 @@
 # Design Tokens MCP Server
 
-A production-ready Model Context Protocol (MCP) server for managing CSS Custom Properties (design tokens). This server enables AI assistants and other MCP clients to read, query, search, and update design tokens from CSS/SCSS files.
+A production-ready Model Context Protocol (MCP) server for managing CSS Custom Properties (design tokens). This server enables AI assistants and other MCP clients to read, query, search, and update design tokens from CSS/SCSS files — including both global branding tokens and component-level tokens.
 
 ## Features
 
 - 📖 **Multi-file Support** - Reads tokens from multiple CSS and SCSS files
-- 🔍 **Advanced Querying** - Filter by file, category, prefix, or semantic type
-- 📊 **Statistics** - Get token counts and distribution across files
+- 🧩 **Component Tokens** - Discover and inspect design tokens for 50+ individual UI components
+- 🔍 **Advanced Querying** - Filter by file, category, prefix, component, or semantic type
+- 📊 **Statistics** - Get token counts and distribution across files and components
 - 🎨 **Color Palette Tools** - Dedicated tools for color tokens with scale support
 - ✏️ **Typography Tools** - Query font families, weights, sizes, and line heights
 - 📐 **Spacing Tools** - Get spacing tokens by size or type
@@ -16,6 +17,8 @@ A production-ready Model Context Protocol (MCP) server for managing CSS Custom P
 - ⚡ **Pagination** - Handle large token sets efficiently
 
 ## Supported Token Files
+
+### Global Token Files
 
 | File                          | Description                                     | Category         |
 | ----------------------------- | ----------------------------------------------- | ---------------- |
@@ -31,6 +34,22 @@ A production-ready Model Context Protocol (MCP) server for managing CSS Custom P
 | `box-shadow-token.scss`       | Box shadow tokens for elevation                 | box-shadow       |
 | `transition-token.scss`       | Animation timing and duration                   | transition       |
 | `scaling-token.scss`          | Scaling factors for responsive design           | scaling          |
+
+### Component Token Files (50 files in `tokens/componentToken/`)
+
+Component tokens control the visual styling of individual UI components. They are organized by category:
+
+| Category       | Components                                                                                |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| **Navigation** | header, nav-flyout, nav-toggle, nav-topbar, breadcrumb, content-nav, pagination           |
+| **Content**    | headline, rich-text, text, image-text, image-story                                        |
+| **Blog**       | blog-aside, blog-head, blog-teaser                                                        |
+| **Cards**      | teaser-card, business-card, contact                                                       |
+| **Heroes**     | hero, cta, video-curtain                                                                  |
+| **Forms**      | button, checkbox, checkbox-group, radio, radio-group, text-field, text-area, select-field  |
+| **Layout**     | section, split-even, split-weighted, mosaic, gallery                                      |
+| **Data Display** | stats, features, faq, testimonials, downloads, logos                                    |
+| **Utility**    | divider, lightbox, slider, cookie-consent, footer, html                                   |
 
 ## Installation
 
@@ -95,7 +114,7 @@ For **remote** use (Streamable HTTP):
 }
 ```
 
-## Available Tools (13 total)
+## Available Tools (16 total)
 
 ### Core Tools
 
@@ -109,13 +128,14 @@ Retrieve a specific token by name with its source file and category.
 
 #### `list_tokens`
 
-List tokens with filtering and pagination.
+List tokens with filtering and pagination. Set `includeComponentTokens: true` to also include component-level tokens in results.
 
 ```json
 {
   "file": "branding",
   "category": "color",
   "prefix": "ks-brand",
+  "includeComponentTokens": false,
   "limit": 50,
   "offset": 0
 }
@@ -123,21 +143,26 @@ List tokens with filtering and pagination.
 
 #### `list_files`
 
-List all token files with descriptions and token counts.
+List all token files with descriptions and token counts. Set `includeComponentFiles: true` to include the 50 component token files.
+
+```json
+{ "includeComponentFiles": true }
+```
 
 #### `get_token_stats`
 
-Get statistics: total tokens, counts by file, category, and prefix.
+Get statistics: total tokens, counts by file, category, and prefix. Automatically includes component token statistics (by component, category, property type, and value type).
 
 #### `search_tokens`
 
-Search tokens by pattern in names or values.
+Search tokens by pattern in names or values. Set `includeComponentTokens: true` to also search component tokens.
 
 ```json
 {
   "pattern": "primary",
   "searchIn": "name",
   "file": "color",
+  "includeComponentTokens": false,
   "limit": 50
 }
 ```
@@ -223,6 +248,49 @@ Update a token value in its source file.
 }
 ```
 
+### Component Token Tools
+
+#### `list_components`
+
+List all available components with their token counts and categories. Optionally filter by category.
+
+```json
+{ "category": "forms" }
+```
+
+Categories: `navigation`, `content`, `blog`, `cards`, `heroes`, `forms`, `layout`, `data-display`, `utility`
+
+#### `get_component_tokens`
+
+Get all tokens for a specific component with structural metadata (element, variant, CSS property, state, value type, referenced globals).
+
+```json
+{ "component": "button" }
+```
+
+Returns enriched token data including:
+- **element** — sub-element (e.g., `icon`, `label`)
+- **variant** — visual variant (e.g., `primary`, `clear`)
+- **cssProperty** — the CSS property being set (e.g., `color`, `background-color`)
+- **state** — interaction state (e.g., `hover`, `active`)
+- **valueType** — `literal`, `global-reference`, `component-reference`, or `calculated`
+- **referencedToken** — the global token being referenced, if any
+
+#### `search_component_tokens`
+
+Search across all component token files by pattern, property, state, or value type.
+
+```json
+{
+  "pattern": "primary",
+  "property": "color",
+  "state": "hover",
+  "valueType": "global-reference",
+  "component": "button",
+  "limit": 50
+}
+```
+
 ### Theme Generation Tools
 
 #### `generate_theme_from_image`
@@ -284,6 +352,13 @@ The design token system follows a layered architecture:
    - Interactive states (hover, active, selected, disabled)
    - Inverted variants for dark mode
 
+4. **Component Tokens** (`tokens/componentToken/` — 50 files)
+   - Per-component styling tokens following the naming convention:
+     `--dsa-{component}[__{element}][_{variant}]--{property}[_{state}]`
+   - Reference global/derived tokens via `var()` for consistency
+   - Enable component-level customization without touching global tokens
+   - Organized into 9 categories: navigation, content, blog, cards, heroes, forms, layout, data-display, utility
+
 ## Example Workflows
 
 ### Get an overview of the token system
@@ -329,6 +404,22 @@ The design token system follows a layered architecture:
    → Returns parsed CSS with colors, fonts, custom properties
 2. update_theme_config { path: "color.primary", value: "#exact-color-from-css" }
    → Apply each extracted value
+```
+
+### Discover and explore component tokens
+
+```
+1. list_components → See all 50 components by category
+2. list_components { category: "forms" } → Filter to form components
+3. get_component_tokens { component: "button" } → See all button tokens with variants/states
+```
+
+### Customize a component's styling
+
+```
+1. get_component_tokens { component: "hero" } → See all hero tokens
+2. search_component_tokens { property: "color", state: "hover" } → Find hover color tokens
+3. search_component_tokens { valueType: "global-reference", component: "hero" } → See which globals hero uses
 ```
 
 ### Combine image + CSS for best results

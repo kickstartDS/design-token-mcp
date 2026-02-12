@@ -83,30 +83,45 @@ Once connected to an MCP client (like Claude), you can use natural language:
 - "Analyze the CSS of https://example.com and create matching branding tokens"
 - "Look at this website image and suggest branding tokens that match its style"
 
-## Available Tools (13 total)
+### Explore Component Tokens
 
-| Tool                        | Purpose                                               |
-| --------------------------- | ----------------------------------------------------- |
-| `get_token`                 | Get a specific token's value                          |
-| `list_tokens`               | List tokens with filters (file, category, prefix)     |
-| `list_files`                | Show all token files with counts                      |
-| `get_token_stats`           | Get token distribution statistics                     |
-| `search_tokens`             | Search by pattern in names/values                     |
-| `get_tokens_by_type`        | Filter by semantic type (interactive, inverted, etc.) |
-| `get_color_palette`         | Get colors by type (primary, positive, etc.)          |
-| `get_typography_tokens`     | Get font-related tokens                               |
-| `get_spacing_tokens`        | Get spacing tokens by size/type                       |
-| `get_branding_tokens`       | Get core editable brand tokens                        |
-| `update_token`              | Modify a token value                                  |
-| `generate_theme_from_image` | Generate a theme from a screenshot or design image    |
-| `extract_theme_from_css`    | Extract a theme from a website's CSS                  |
+- "List all available components"
+- "Show me the form components"
+- "What tokens does the button component have?"
+- "Show me all hover state tokens across components"
+- "Which component tokens reference the primary color?"
+- "Search for color tokens in the hero component"
+
+## Available Tools (16 total)
+
+| Tool                         | Purpose                                               |
+| ---------------------------- | ----------------------------------------------------- |
+| `get_token`                  | Get a specific token's value                          |
+| `list_tokens`                | List tokens with filters (file, category, prefix)     |
+| `list_files`                 | Show all token files with counts                      |
+| `get_token_stats`            | Get token distribution statistics                     |
+| `search_tokens`              | Search by pattern in names/values                     |
+| `get_tokens_by_type`         | Filter by semantic type (interactive, inverted, etc.) |
+| `get_color_palette`          | Get colors by type (primary, positive, etc.)          |
+| `get_typography_tokens`      | Get font-related tokens                               |
+| `get_spacing_tokens`         | Get spacing tokens by size/type                       |
+| `get_branding_tokens`        | Get core editable brand tokens                        |
+| `update_token`               | Modify a token value                                  |
+| `generate_theme_from_image`  | Generate a theme from a screenshot or design image    |
+| `extract_theme_from_css`     | Extract a theme from a website's CSS                  |
+| `list_components`            | List all components with categories and token counts  |
+| `get_component_tokens`       | Get enriched tokens for a specific component          |
+| `search_component_tokens`    | Search component tokens by pattern, property, state   |
 
 ## Verifying It Works
 
 After configuration, ask your MCP client:
 "List all token files with their token counts"
 
-If successful, you'll see a JSON response with all 12 token files and their statistics.
+If successful, you'll see a JSON response with the 12 global token files and their statistics.
+
+You can also try:
+"List all available components" — this should return all 50 components organized by category.
 
 ## Troubleshooting
 
