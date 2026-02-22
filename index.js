@@ -1330,6 +1330,968 @@ function getTokensBySemanticType(tokens, semanticType) {
   return results;
 }
 
+// ============================================================================
+// DESIGN INTENT & GOVERNANCE LAYER
+// ============================================================================
+
+const RULES_DIR = path.join(__dirname, "rules");
+
+/** Cached design rules — loaded once from rules/*.json */
+let _cachedRules = null;
+
+/**
+ * Load all design rules from rules/*.json files.
+ * Caches in memory after first load.
+ * @returns {Promise<Array<Object>>}
+ */
+async function loadDesignRules() {
+  if (_cachedRules) return _cachedRules;
+
+  const rules = [];
+  try {
+    await fs.access(RULES_DIR);
+    const files = await fs.readdir(RULES_DIR);
+    const jsonFiles = files.filter((f) => f.endsWith(".json"));
+
+    for (const file of jsonFiles) {
+      try {
+        const content = await fs.readFile(path.join(RULES_DIR, file), "utf-8");
+        const rule = JSON.parse(content);
+        rule._sourceFile = file;
+        rules.push(rule);
+      } catch (e) {
+        console.error(
+          `Warning: failed to parse rule file ${file}: ${e.message}`,
+        );
+      }
+    }
+  } catch {
+    console.error(
+      "Warning: rules/ directory not found, governance layer disabled",
+    );
+  }
+
+  _cachedRules = rules;
+  return rules;
+}
+
+/**
+ * Check if a token name exists in the system (global + component tokens).
+ * @param {string} tokenName - The full token name (e.g., "--ks-text-color-display")
+ * @returns {Promise<boolean>}
+ */
+async function validateTokenExistence(tokenName) {
+  const normalized = tokenName.startsWith("--") ? tokenName : `--${tokenName}`;
+
+  // Check global tokens
+  const globalTokens = await parseAllTokens();
+  if (globalTokens.has(normalized)) return true;
+
+  // Check component tokens
+  const componentTokens = await parseAllComponentTokens();
+  for (const ct of componentTokens) {
+    if (ct.name === normalized) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Extract the typography category from a token name.
+ * @param {string} tokenName
+ * @returns {string|null} - "display", "copy", "interface", "mono", or null
+ */
+function extractTypographyCategory(tokenName) {
+  if (tokenName.includes("-display")) return "display";
+  if (tokenName.includes("-copy")) return "copy";
+  if (tokenName.includes("-interface")) return "interface";
+  if (tokenName.includes("-mono")) return "mono";
+  return null;
+}
+
+/**
+ * Check if a token is a primitive color token (should use semantic layer instead).
+ * @param {string} tokenName
+ * @returns {boolean}
+ */
+function isPrimitiveColorToken(tokenName) {
+  const primitivePatterns = [
+    /^--ks-color-primary-alpha-/,
+    /^--ks-color-primary-to-/,
+    /^--ks-color-primary-inverted-alpha-/,
+    /^--ks-color-primary-inverted-to-/,
+    /^--ks-color-fg-alpha-/,
+    /^--ks-color-fg-to-/,
+    /^--ks-color-fg-inverted-/,
+    /^--ks-color-bg-inverted/,
+    /^--ks-color-link-to-/,
+    /^--ks-color-link-inverted-to-/,
+    /^--ks-color-positive-alpha-/,
+    /^--ks-color-positive-to-/,
+    /^--ks-color-negative-alpha-/,
+    /^--ks-color-negative-to-/,
+    /^--ks-color-notice-alpha-/,
+    /^--ks-color-notice-to-/,
+    /^--ks-color-informative-alpha-/,
+    /^--ks-color-informative-to-/,
+  ];
+  return primitivePatterns.some((p) => p.test(tokenName));
+}
+
+/**
+ * Detect hardcoded values that should use tokens instead.
+ * @param {string} value - Raw CSS value
+ * @param {string} cssProperty - CSS property name
+ * @returns {{isHardcoded: boolean, suggestion: string|null, category: string|null}}
+ */
+function detectHardcodedValue(value, cssProperty) {
+  if (!value || value.includes("var("))
+    return { isHardcoded: false, suggestion: null, category: null };
+
+  const trimmed = value.trim();
+
+  // Hardcoded colors: hex, rgb, rgba, hsl, hsla, named colors (excluding 'transparent', 'inherit', 'initial', 'currentColor')
+  if (
+    cssProperty === "color" ||
+    cssProperty === "background-color" ||
+    cssProperty === "border-color"
+  ) {
+    if (
+      /^#[0-9a-fA-F]{3,8}$/.test(trimmed) ||
+      /^rgba?\(/.test(trimmed) ||
+      /^hsla?\(/.test(trimmed)
+    ) {
+      return {
+        isHardcoded: true,
+        suggestion:
+          "Use a --ks-text-color-*, --ks-background-color-*, or --ks-border-color-* token",
+        category: "hardcoded-color",
+      };
+    }
+  }
+
+  // Hardcoded spacing: pixel or rem values for spacing properties
+  if (
+    [
+      "padding",
+      "margin",
+      "gap",
+      "padding-top",
+      "padding-bottom",
+      "padding-left",
+      "padding-right",
+      "margin-top",
+      "margin-bottom",
+      "margin-left",
+      "margin-right",
+    ].includes(cssProperty)
+  ) {
+    if (/^\d+(\.\d+)?(px|rem|em)$/.test(trimmed)) {
+      return {
+        isHardcoded: true,
+        suggestion: "Use a --ks-spacing-* token",
+        category: "hardcoded-spacing",
+      };
+    }
+  }
+
+  // Hardcoded border-radius
+  if (cssProperty === "border-radius") {
+    if (/^\d+(\.\d+)?(px|rem|em|%)$/.test(trimmed)) {
+      return {
+        isHardcoded: true,
+        suggestion: "Use a --ks-border-radius-* token",
+        category: "hardcoded-border-radius",
+      };
+    }
+  }
+
+  // Hardcoded font-weight
+  if (cssProperty === "font-weight") {
+    if (/^\d{3}$/.test(trimmed)) {
+      return {
+        isHardcoded: true,
+        suggestion: "Use a --ks-font-weight-* token",
+        category: "hardcoded-font-weight",
+      };
+    }
+  }
+
+  // Hardcoded box-shadow
+  if (cssProperty === "box-shadow") {
+    if (!trimmed.includes("var(") && trimmed !== "none") {
+      return {
+        isHardcoded: true,
+        suggestion: "Use a --ks-box-shadow-* token",
+        category: "hardcoded-box-shadow",
+      };
+    }
+  }
+
+  return { isHardcoded: false, suggestion: null, category: null };
+}
+
+/**
+ * Validate a single token usage against all applicable design rules.
+ * @param {string} tokenName - Token being used (e.g., "--ks-text-color-display")
+ * @param {string} cssProperty - CSS property (e.g., "color")
+ * @param {string|null} element - Element context (e.g., "hero headline")
+ * @param {string|null} designContext - Broad design context (e.g., "hero")
+ * @param {string|null} rawValue - Raw CSS value (for hardcoded detection)
+ * @param {Array} rules - Loaded design rules
+ * @returns {Promise<Array<Object>>} - Array of violations
+ */
+async function validateSingleTokenUsage(
+  tokenName,
+  cssProperty,
+  element,
+  designContext,
+  rawValue,
+  rules,
+) {
+  const violations = [];
+
+  // 1. Hardcoded value detection
+  if (rawValue && !tokenName) {
+    const { isHardcoded, suggestion, category } = detectHardcodedValue(
+      rawValue,
+      cssProperty,
+    );
+    if (isHardcoded) {
+      violations.push({
+        severity: "critical",
+        ruleId: "hardcoded-value",
+        ruleName: "Hardcoded Value Detection",
+        token: rawValue,
+        message: `Hardcoded ${category} value "${rawValue}" for ${cssProperty}. This bypasses the token system and breaks theming.`,
+        suggestion,
+        rationale:
+          "Hardcoded values can't be themed and don't respond to design system changes",
+      });
+    }
+    return violations;
+  }
+
+  if (!tokenName) return violations;
+
+  // 2. Token existence check
+  const exists = await validateTokenExistence(tokenName);
+  if (!exists) {
+    violations.push({
+      severity: "critical",
+      ruleId: "token-existence",
+      ruleName: "Phantom Token Detection",
+      token: tokenName,
+      message: `Phantom token: "${tokenName}" does not exist in the design system. It will silently fail at runtime.`,
+      suggestion:
+        "Search for similar tokens using search_tokens or get_color_palette",
+      rationale:
+        "Phantom tokens produce invisible failures — the CSS property falls through to inherited/initial value",
+    });
+    return violations; // No point checking intent if token doesn't exist
+  }
+
+  // 3. Semantic layer check — primitive color tokens used directly
+  if (isPrimitiveColorToken(tokenName)) {
+    const semanticRule = rules.find((r) => r.id === "color-semantic-layer");
+    violations.push({
+      severity: "warning",
+      ruleId: "color-semantic-layer",
+      ruleName: semanticRule?.name || "Use Semantic Color Tokens",
+      token: tokenName,
+      message: `Primitive color token "${tokenName}" used directly. Prefer semantic tokens (--ks-text-color-*, --ks-background-color-*, --ks-border-color-*).`,
+      suggestion:
+        semanticRule?.semanticAlternatives?.[cssProperty] ||
+        "Use the appropriate semantic color token layer",
+      rationale:
+        "Primitive color tokens bypass the semantic layer, making intent unclear and theming fragile",
+    });
+  }
+
+  // 4. Text-color hierarchy check
+  const textColorRule = rules.find((r) => r.id === "text-color-hierarchy");
+  if (textColorRule && tokenName.startsWith("--ks-text-color-")) {
+    const baseTokenName = tokenName
+      .replace(/-inverted/, "")
+      .replace(/-(interactive|hover|active|selected|base).*/, "");
+    const tokenConfig = textColorRule.tokens?.[baseTokenName];
+    if (tokenConfig && element) {
+      const elementLower = element.toLowerCase();
+      const contextLower = (designContext || "").toLowerCase();
+      const allContext = `${elementLower} ${contextLower}`.trim();
+
+      // Fuzzy match: stem common suffixes so "headline" matches "headings", "buttons" matches "button", etc.
+      const stem = (s) =>
+        s.replace(/s$/, "").replace(/ing$/, "").replace(/line$/, "line");
+
+      const isInvalid = tokenConfig.invalidContexts?.some((ctx) => {
+        const ctxNorm = ctx.toLowerCase().replace(/-/g, " ");
+        return (
+          allContext.includes(ctxNorm) ||
+          ctxNorm.split(" ").some((w) => allContext.includes(stem(w)))
+        );
+      });
+
+      if (isInvalid) {
+        const validTokens = Object.entries(textColorRule.tokens)
+          .filter(([, cfg]) =>
+            cfg.validContexts?.some((ctx) => {
+              const ctxNorm = ctx.toLowerCase().replace(/-/g, " ");
+              return (
+                allContext.includes(ctxNorm) ||
+                ctxNorm.split(" ").some((w) => allContext.includes(stem(w)))
+              );
+            }),
+          )
+          .map(([name]) => name);
+
+        violations.push({
+          severity: "warning",
+          ruleId: "text-color-hierarchy",
+          ruleName: textColorRule.name,
+          token: tokenName,
+          message: `"${tokenName}" used for "${element}"${designContext ? ` in ${designContext} context` : ""} — this token is for ${tokenConfig.role}.`,
+          suggestion:
+            validTokens.length > 0
+              ? `Consider using ${validTokens.join(" or ")} instead`
+              : `Check the text-color hierarchy for the appropriate token`,
+          rationale: tokenConfig.rationale,
+        });
+      }
+    }
+  }
+
+  // 5. Background-color layer check
+  const bgRule = rules.find((r) => r.id === "background-color-layers");
+  if (bgRule && tokenName.startsWith("--ks-background-color-")) {
+    const baseTokenName = tokenName
+      .replace(/-inverted/, "")
+      .replace(
+        /-(interactive|hover|active|selected|disabled|base|translucent).*/,
+        "",
+      );
+    const tokenConfig = bgRule.tokens?.[baseTokenName];
+    if (tokenConfig && element) {
+      const allContext =
+        `${element.toLowerCase()} ${(designContext || "").toLowerCase()}`.trim();
+      const isInvalid = tokenConfig.invalidContexts?.some((ctx) =>
+        allContext.includes(ctx.toLowerCase().replace(/-/g, " ")),
+      );
+      if (isInvalid) {
+        violations.push({
+          severity: "info",
+          ruleId: "background-color-layers",
+          ruleName: bgRule.name,
+          token: tokenName,
+          message: `"${tokenName}" used for "${element}"${designContext ? ` in ${designContext} context` : ""} — this token is for ${tokenConfig.role}.`,
+          suggestion: `Check background-color layer hierarchy for the appropriate token`,
+          rationale: tokenConfig.rationale,
+        });
+      }
+    }
+  }
+
+  // 6. Font-family role check
+  const fontFamilyRule = rules.find((r) => r.id === "font-family-roles");
+  if (fontFamilyRule && tokenName.startsWith("--ks-font-family-")) {
+    const tokenConfig = fontFamilyRule.tokens?.[tokenName];
+    if (tokenConfig && element) {
+      const allContext = `${element.toLowerCase()} ${(designContext || "").toLowerCase()}`;
+      const isInvalid = tokenConfig.invalidContexts?.some((ctx) =>
+        allContext.includes(ctx.toLowerCase().replace(/-/g, " ")),
+      );
+      if (isInvalid) {
+        violations.push({
+          severity: "warning",
+          ruleId: "font-family-roles",
+          ruleName: fontFamilyRule.name,
+          token: tokenName,
+          message: `"${tokenName}" used for "${element}" — this font family is for ${tokenConfig.role}.`,
+          suggestion: `Check font-family role assignments for the appropriate token`,
+          rationale: tokenConfig.rationale,
+        });
+      }
+    }
+  }
+
+  // 7. Typography category pairing check
+  const typoPairingRule = rules.find((r) => r.id === "typography-pairing");
+  if (typoPairingRule) {
+    const typoCategory = extractTypographyCategory(tokenName);
+    if (
+      typoCategory &&
+      (tokenName.includes("font-size") || tokenName.includes("line-height"))
+    ) {
+      // This violation is detected at the component level when multiple tokens are checked together
+      // Stored as metadata for component-level validation
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * Validate a set of token usages and return all violations.
+ * @param {string} context - What is being validated
+ * @param {string|null} designContext - Broad design context
+ * @param {Array} tokenUsages - Array of {token, cssProperty, element, value}
+ * @returns {Promise<Object>} - Validation response with violations and summary
+ */
+async function validateTokenUsages(context, designContext, tokenUsages) {
+  const rules = await loadDesignRules();
+  const violations = [];
+  let cleanCount = 0;
+
+  for (const usage of tokenUsages) {
+    const tokenViolations = await validateSingleTokenUsage(
+      usage.token || null,
+      usage.cssProperty,
+      usage.element || null,
+      designContext || null,
+      usage.value || null,
+      rules,
+    );
+
+    if (tokenViolations.length === 0) {
+      cleanCount++;
+    } else {
+      violations.push(...tokenViolations);
+    }
+  }
+
+  // Cross-usage checks: typography pairing
+  const typoPairingRule = rules.find((r) => r.id === "typography-pairing");
+  if (typoPairingRule) {
+    const typoCategories = {};
+    for (const usage of tokenUsages) {
+      if (usage.token) {
+        const cat = extractTypographyCategory(usage.token);
+        if (cat) {
+          if (!typoCategories[usage.element || "_root"]) {
+            typoCategories[usage.element || "_root"] = {};
+          }
+          const prop = usage.cssProperty;
+          if (prop.includes("font-size") || prop === "font-size") {
+            typoCategories[usage.element || "_root"].fontSize = {
+              token: usage.token,
+              category: cat,
+            };
+          } else if (prop.includes("line-height") || prop === "line-height") {
+            typoCategories[usage.element || "_root"].lineHeight = {
+              token: usage.token,
+              category: cat,
+            };
+          } else if (prop.includes("font-family") || prop === "font-family") {
+            typoCategories[usage.element || "_root"].fontFamily = {
+              token: usage.token,
+              category: cat,
+            };
+          }
+        }
+      }
+    }
+
+    for (const [element, cats] of Object.entries(typoCategories)) {
+      const categories = new Set(Object.values(cats).map((c) => c.category));
+      if (categories.size > 1) {
+        const details = Object.entries(cats)
+          .map(([prop, c]) => `${prop}: ${c.token} (${c.category})`)
+          .join(", ");
+        violations.push({
+          severity: "warning",
+          ruleId: "typography-pairing",
+          ruleName: typoPairingRule.name || "Typography Category Pairing",
+          token: Object.values(cats)
+            .map((c) => c.token)
+            .join(", "),
+          message: `Typography category mismatch in "${element}": ${details}. Font-size and line-height should come from the same category.`,
+          suggestion: `Align all typography tokens to the same category (display, copy, interface, or mono)`,
+          rationale:
+            typoPairingRule.rule || "Mixing categories breaks vertical rhythm",
+        });
+      }
+    }
+  }
+
+  return {
+    context,
+    designContext: designContext || "unspecified",
+    totalUsages: tokenUsages.length,
+    violations,
+    summary: {
+      critical: violations.filter((v) => v.severity === "critical").length,
+      warning: violations.filter((v) => v.severity === "warning").length,
+      info: violations.filter((v) => v.severity === "info").length,
+      clean: cleanCount,
+    },
+  };
+}
+
+/**
+ * Recommend tokens for a given design context and CSS property.
+ * @param {string} cssProperty
+ * @param {string} element
+ * @param {string|null} designContext
+ * @param {{interactive?: boolean, inverted?: boolean}} options
+ * @returns {Promise<Object>}
+ */
+async function recommendTokenForContext(
+  cssProperty,
+  element,
+  designContext,
+  options = {},
+) {
+  const rules = await loadDesignRules();
+  const recommendations = [];
+  const avoid = [];
+  const elementLower = element.toLowerCase();
+  const contextLower = (designContext || "").toLowerCase();
+  const allContext = `${elementLower} ${contextLower}`;
+
+  // Find applicable rules based on CSS property
+  const applicableRules = [];
+
+  if (cssProperty === "color") {
+    const rule = rules.find((r) => r.id === "text-color-hierarchy");
+    if (rule) applicableRules.push(rule);
+  } else if (cssProperty === "background-color") {
+    const rule = rules.find((r) => r.id === "background-color-layers");
+    if (rule) applicableRules.push(rule);
+  } else if (cssProperty === "font-family") {
+    const rule = rules.find((r) => r.id === "font-family-roles");
+    if (rule) applicableRules.push(rule);
+  } else if (cssProperty === "box-shadow") {
+    const rule = rules.find((r) => r.id === "elevation-hierarchy");
+    if (rule) applicableRules.push(rule);
+  } else if (cssProperty === "border-radius") {
+    const rule = rules.find((r) => r.id === "border-radius-scale");
+    if (rule) applicableRules.push(rule);
+  } else if (["padding", "margin", "gap"].includes(cssProperty)) {
+    const rule = rules.find((r) => r.id === "spacing-scale");
+    if (rule) applicableRules.push(rule);
+  } else if (cssProperty === "transition") {
+    const rule = rules.find((r) => r.id === "transition-consistency");
+    if (rule) applicableRules.push(rule);
+  }
+
+  for (const rule of applicableRules) {
+    // Handle scale-based rules (elevation, spacing, border-radius)
+    if (rule.scale) {
+      for (const level of rule.scale) {
+        const matchesValid = level.validContexts?.some((ctx) =>
+          allContext.includes(ctx.toLowerCase().replace(/-/g, " ")),
+        );
+        const matchesInvalid = level.invalidContexts?.some((ctx) =>
+          allContext.includes(ctx.toLowerCase().replace(/-/g, " ")),
+        );
+
+        if (matchesValid && !matchesInvalid) {
+          const rec = {
+            rank: recommendations.length + 1,
+            token:
+              options.inverted && level.token.includes("-inverted")
+                ? level.token
+                : level.token,
+            confidence: "high",
+            rationale: `${level.label}: ${level.purpose}`,
+          };
+          if (level.hoverToken && options.interactive) {
+            rec.interactiveStates = { hover: level.hoverToken };
+          }
+          recommendations.push(rec);
+        } else if (matchesInvalid) {
+          avoid.push({
+            token: level.token,
+            reason: `${level.label} elevation is for ${level.purpose} — not appropriate for ${element}`,
+          });
+        }
+      }
+    }
+
+    // Handle token-map rules (text-color, background-color, font-family)
+    if (rule.tokens) {
+      for (const [tokenName, config] of Object.entries(rule.tokens)) {
+        const matchesValid = config.validContexts?.some((ctx) =>
+          allContext.includes(ctx.toLowerCase().replace(/-/g, " ")),
+        );
+        const matchesInvalid = config.invalidContexts?.some((ctx) =>
+          allContext.includes(ctx.toLowerCase().replace(/-/g, " ")),
+        );
+
+        const resolvedToken =
+          options.inverted && !tokenName.includes("-inverted")
+            ? tokenName.replace(/(--ks-[a-z-]+)/, "$1-inverted")
+            : tokenName;
+
+        if (matchesValid && !matchesInvalid) {
+          const rec = {
+            rank: recommendations.length + 1,
+            token: resolvedToken,
+            confidence: "high",
+            rationale: config.role,
+          };
+
+          // Add pairing info if available
+          const pairingRules = rule.pairingRules?.find(
+            (p) => p.token === tokenName || p.fontFamily === tokenName,
+          );
+          if (pairingRules) {
+            rec.pairWith = [];
+            if (pairingRules.expectedFontFamily) {
+              rec.pairWith.push({
+                cssProperty: "font-family",
+                token: pairingRules.expectedFontFamily,
+              });
+            }
+            if (pairingRules.expectedLineHeight) {
+              rec.pairWith.push({
+                cssProperty: "line-height",
+                pattern: pairingRules.expectedLineHeight,
+              });
+            }
+            if (pairingRules.expectedFontSize) {
+              rec.pairWith.push({
+                cssProperty: "font-size",
+                pattern: pairingRules.expectedFontSize,
+              });
+            }
+            if (pairingRules.expectedTextColor) {
+              rec.pairWith.push({
+                cssProperty: "color",
+                token: pairingRules.expectedTextColor,
+              });
+            }
+          }
+
+          // Add interactive state tokens if requested
+          if (options.interactive) {
+            const interactiveBase = `${resolvedToken}-interactive`;
+            rec.interactiveStates = {
+              base: interactiveBase,
+              hover: `${interactiveBase}-hover`,
+              active: `${interactiveBase}-active`,
+            };
+          }
+
+          recommendations.push(rec);
+        } else if (matchesInvalid) {
+          avoid.push({
+            token: tokenName,
+            reason: `${config.role} — not appropriate for ${element}. ${config.rationale || ""}`,
+          });
+        }
+      }
+    }
+  }
+
+  // If no specific match, try returning the full hierarchy for the property
+  if (recommendations.length === 0 && applicableRules.length > 0) {
+    const rule = applicableRules[0];
+    if (rule.tokens) {
+      for (const [tokenName, config] of Object.entries(rule.tokens)) {
+        recommendations.push({
+          rank: recommendations.length + 1,
+          token: tokenName,
+          confidence: "low",
+          rationale: `${config.role} — review if this matches your "${element}" context`,
+        });
+      }
+    }
+    if (rule.scale) {
+      for (const level of rule.scale) {
+        recommendations.push({
+          rank: recommendations.length + 1,
+          token: level.token,
+          confidence: "low",
+          rationale: `${level.label}: ${level.purpose} — review if this matches your "${element}" context`,
+        });
+      }
+    }
+  }
+
+  return {
+    cssProperty,
+    element,
+    designContext: designContext || "unspecified",
+    recommendations,
+    avoid,
+  };
+}
+
+/**
+ * Get the semantic hierarchy for a token category.
+ * @param {string} category - e.g., "text-color", "elevation", "spacing"
+ * @returns {Promise<Object>}
+ */
+async function getTokenHierarchy(category) {
+  const rules = await loadDesignRules();
+
+  const categoryRuleMap = {
+    "text-color": "text-color-hierarchy",
+    "background-color": "background-color-layers",
+    elevation: "elevation-hierarchy",
+    "font-family": "font-family-roles",
+    "font-size": "typography-pairing",
+    spacing: "spacing-scale",
+    "border-radius": "border-radius-scale",
+    "line-height": "typography-pairing",
+    transition: "transition-consistency",
+  };
+
+  const ruleId = categoryRuleMap[category];
+  if (!ruleId) {
+    return {
+      error: `Unknown category: ${category}. Available: ${Object.keys(categoryRuleMap).join(", ")}`,
+    };
+  }
+
+  const rule = rules.find((r) => r.id === ruleId);
+  if (!rule) {
+    return { error: `Rule "${ruleId}" not found in rules/ directory` };
+  }
+
+  const result = {
+    category,
+    ruleId: rule.id,
+    name: rule.name,
+    description: rule.description,
+    severity: rule.severity,
+  };
+
+  if (rule.scale) {
+    result.hierarchy = rule.scale;
+  }
+  if (rule.tokens) {
+    result.hierarchy = Object.entries(rule.tokens).map(([name, config], i) => ({
+      level: i + 1,
+      token: name,
+      role: config.role,
+      validContexts: config.validContexts,
+      invalidContexts: config.invalidContexts,
+      rationale: config.rationale,
+    }));
+  }
+  if (rule.pairingRules) {
+    result.pairingRules = rule.pairingRules;
+  }
+  if (rule.categories) {
+    result.typographyCategories = rule.categories;
+  }
+  if (rule.spacingTypes) {
+    result.spacingTypes = rule.spacingTypes;
+  }
+
+  return result;
+}
+
+/**
+ * Audit all tokens for a single component against design rules.
+ * @param {string} componentSlug - Component slug (e.g., "button")
+ * @returns {Promise<Object>}
+ */
+async function auditComponentTokens(componentSlug) {
+  const config = COMPONENT_TOKEN_FILES[componentSlug];
+  if (!config) {
+    return {
+      error: `Component "${componentSlug}" not found. Use list_components to see available components.`,
+    };
+  }
+
+  const tokens = await parseAllComponentTokens(componentSlug);
+  const rules = await loadDesignRules();
+  const violations = [];
+
+  // Track state tokens for completeness checks
+  const stateMap = {}; // variant+property → set of states
+
+  for (const token of tokens) {
+    const { valueType, referencedToken } = classifyTokenValue(token.value);
+
+    // Check referenced token existence
+    if (referencedToken) {
+      const exists = await validateTokenExistence(referencedToken);
+      if (!exists) {
+        violations.push({
+          severity: "critical",
+          ruleId: referencedToken.startsWith("--dsa-")
+            ? "component-reference-validity"
+            : "token-existence",
+          ruleName: referencedToken.startsWith("--dsa-")
+            ? "Component Cross-Reference Validity"
+            : "Phantom Token Detection",
+          token: token.name,
+          referencedToken,
+          message: `Token "${token.name}" references "${referencedToken}" which does not exist in the design system.`,
+          suggestion: "Search for the correct token name using search_tokens",
+          rationale: "Phantom tokens silently fail at runtime",
+        });
+      }
+
+      // Check semantic layer usage
+      if (isPrimitiveColorToken(referencedToken)) {
+        violations.push({
+          severity: "warning",
+          ruleId: "color-semantic-layer",
+          ruleName: "Use Semantic Color Tokens",
+          token: token.name,
+          referencedToken,
+          message: `Token "${token.name}" references primitive color "${referencedToken}". Prefer semantic color tokens.`,
+          suggestion:
+            "Use --ks-text-color-*, --ks-background-color-*, or --ks-border-color-* instead",
+          rationale: "Primitive color tokens bypass the semantic layer",
+        });
+      }
+    }
+
+    // Check hardcoded values
+    if (valueType === "literal" && token.value) {
+      const { isHardcoded, suggestion, category } = detectHardcodedValue(
+        token.value,
+        token.cssProperty,
+      );
+      if (isHardcoded) {
+        violations.push({
+          severity: "critical",
+          ruleId: "hardcoded-value",
+          ruleName: "Hardcoded Value Detection",
+          token: token.name,
+          message: `Hardcoded ${category} value "${token.value}" in ${token.cssProperty}. Use a design token instead.`,
+          suggestion,
+          rationale:
+            "Hardcoded values bypass the token system and break theming",
+        });
+      }
+    }
+
+    // Track states for completeness check
+    if (token.state) {
+      const key = `${token.variant || "_base"}::${token.cssProperty}`;
+      if (!stateMap[key]) stateMap[key] = { states: new Set(), tokens: [] };
+      stateMap[key].states.add(token.state);
+      stateMap[key].tokens.push(token.name);
+    }
+  }
+
+  // Interactive state completeness check
+  const stateRule = rules.find(
+    (r) => r.id === "interactive-state-completeness",
+  );
+  if (stateRule) {
+    for (const [key, data] of Object.entries(stateMap)) {
+      const colorProps = ["color", "background-color", "border-color"];
+      const [, prop] = key.split("::");
+      if (colorProps.includes(prop)) {
+        const required = stateRule.stateGroups?.["color-states"]
+          ?.requiredStates || ["hover", "active"];
+        const missing = required.filter((s) => !data.states.has(s));
+        if (missing.length > 0) {
+          violations.push({
+            severity: "warning",
+            ruleId: "interactive-state-completeness",
+            ruleName: stateRule.name,
+            token: data.tokens.join(", "),
+            message: `Incomplete interactive states for ${key}: has [${[...data.states].join(", ")}] but missing [${missing.join(", ")}].`,
+            suggestion: `Add ${missing.map((s) => `_${s}`).join(", ")} state token(s) for complete interaction feedback`,
+            rationale:
+              "Incomplete state sets create gaps in interaction feedback",
+          });
+        }
+      }
+    }
+  }
+
+  // Sort violations by severity
+  const severityOrder = { critical: 0, warning: 1, info: 2 };
+  violations.sort(
+    (a, b) => severityOrder[a.severity] - severityOrder[b.severity],
+  );
+
+  return {
+    component: componentSlug,
+    file: config.file,
+    category: config.category,
+    totalTokens: tokens.length,
+    totalViolations: violations.length,
+    violations,
+    summary: {
+      critical: violations.filter((v) => v.severity === "critical").length,
+      warning: violations.filter((v) => v.severity === "warning").length,
+      info: violations.filter((v) => v.severity === "info").length,
+    },
+  };
+}
+
+/**
+ * Batch audit across all components, returning a summary table.
+ * @param {string} category - Component category filter ("all" for all)
+ * @param {string} minSeverity - Minimum severity to include ("info", "warning", "critical")
+ * @returns {Promise<Object>}
+ */
+async function auditAllComponents(category = "all", minSeverity = "info") {
+  const severityOrder = { critical: 0, warning: 1, info: 2 };
+  const minSev = severityOrder[minSeverity] ?? 2;
+
+  const components = Object.entries(COMPONENT_TOKEN_FILES)
+    .filter(([slug, config]) => {
+      if (category === "all") return true;
+      return config.category === category;
+    })
+    .map(([slug]) => slug)
+    .sort();
+
+  const results = [];
+  let totalCritical = 0;
+  let totalWarning = 0;
+  let totalInfo = 0;
+  let totalTokens = 0;
+
+  for (const slug of components) {
+    const audit = await auditComponentTokens(slug);
+    if (audit.error) continue;
+
+    const filteredViolations = audit.violations.filter(
+      (v) => severityOrder[v.severity] <= minSev,
+    );
+
+    const crit = filteredViolations.filter(
+      (v) => v.severity === "critical",
+    ).length;
+    const warn = filteredViolations.filter(
+      (v) => v.severity === "warning",
+    ).length;
+    const info = filteredViolations.filter((v) => v.severity === "info").length;
+    const total = crit + warn + info;
+
+    totalCritical += crit;
+    totalWarning += warn;
+    totalInfo += info;
+    totalTokens += audit.totalTokens;
+
+    results.push({
+      component: slug,
+      category: COMPONENT_TOKEN_FILES[slug].category,
+      tokens: audit.totalTokens,
+      critical: crit,
+      warning: warn,
+      info: info,
+      total,
+    });
+  }
+
+  return {
+    scope: category === "all" ? "All components" : `Category: ${category}`,
+    componentsScanned: results.length,
+    totalTokens,
+    summary: results,
+    totals: {
+      critical: totalCritical,
+      warning: totalWarning,
+      info: totalInfo,
+      total: totalCritical + totalWarning + totalInfo,
+    },
+  };
+}
+
 // Create MCP server instance
 const server = new Server(
   {
@@ -1898,6 +2860,231 @@ function registerHandlers(srv) {
               },
             },
             required: ["pattern"],
+          },
+        },
+
+        // ============================================================
+        // DESIGN INTENT & GOVERNANCE TOOLS
+        // ============================================================
+        {
+          name: "get_design_rules",
+          description:
+            "List all design intent rules encoded in the system, or get details for a specific rule. Each rule describes what's valid, what violates the intent even when syntax is correct, and the rationale behind the design decision. Use this to understand the 'why' behind token choices.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              ruleId: {
+                type: "string",
+                description:
+                  "Get details for a specific rule by ID (e.g., 'text-color-hierarchy', 'elevation-hierarchy'). Omit to list all rules.",
+              },
+              category: {
+                type: "string",
+                enum: [
+                  "semantic-hierarchy",
+                  "hierarchy",
+                  "pairing",
+                  "existence",
+                  "completeness",
+                ],
+                description: "Filter rules by category",
+              },
+              severity: {
+                type: "string",
+                enum: ["critical", "warning", "info"],
+                description: "Filter rules by severity level",
+              },
+            },
+          },
+        },
+        {
+          name: "get_token_hierarchy",
+          description:
+            "Get the semantic hierarchy and relationships for a token category. Shows which tokens are designed for which level of the visual hierarchy, their intended ordering, and pairing rules. Use this to understand the design system's intent before choosing tokens.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              category: {
+                type: "string",
+                enum: [
+                  "text-color",
+                  "background-color",
+                  "elevation",
+                  "font-family",
+                  "font-size",
+                  "spacing",
+                  "border-radius",
+                  "line-height",
+                  "transition",
+                ],
+                description: "The token category to get the hierarchy for",
+              },
+            },
+            required: ["category"],
+          },
+        },
+        {
+          name: "validate_token_usage",
+          description:
+            "Validate a set of design token usages against the design system's intent rules. Checks not just whether tokens exist, but whether they are semantically correct for their context. Returns violations classified by severity (critical/warning/info) with suggestions for correct alternatives. Use this after generating CSS or when reviewing component styling.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              context: {
+                type: "string",
+                description:
+                  "What is being validated (e.g., 'hero component', 'contact form', 'card body text')",
+              },
+              designContext: {
+                type: "string",
+                enum: [
+                  "hero",
+                  "card",
+                  "form",
+                  "navigation",
+                  "section",
+                  "modal",
+                  "footer",
+                  "body-content",
+                  "data-display",
+                ],
+                description: "The broad design context to validate against",
+              },
+              tokenUsages: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    token: {
+                      type: "string",
+                      description:
+                        "Token name (e.g., '--ks-text-color-display')",
+                    },
+                    cssProperty: {
+                      type: "string",
+                      description:
+                        "CSS property being set (e.g., 'color', 'background-color')",
+                    },
+                    element: {
+                      type: "string",
+                      description:
+                        "Element within the component (e.g., 'headline', 'body', 'label')",
+                    },
+                    value: {
+                      type: "string",
+                      description:
+                        "Raw CSS value if not using a token (for hardcoded value detection)",
+                    },
+                  },
+                  required: ["cssProperty"],
+                },
+                description: "List of token usages to validate",
+              },
+            },
+            required: ["context", "tokenUsages"],
+          },
+        },
+        {
+          name: "get_token_for_context",
+          description:
+            "Get the recommended design token for a specific design context and CSS property. Instead of browsing all tokens, describe what you're styling and get a ranked recommendation with rationale. This encodes the design system's intent — which token is *right*, not just which tokens *exist*.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              cssProperty: {
+                type: "string",
+                description:
+                  "The CSS property you're setting (e.g., 'color', 'background-color', 'font-family', 'box-shadow', 'padding', 'border-radius', 'transition')",
+              },
+              element: {
+                type: "string",
+                description:
+                  "What you're styling (e.g., 'hero headline', 'card body text', 'form input', 'navigation link', 'section background', 'modal overlay')",
+              },
+              designContext: {
+                type: "string",
+                enum: [
+                  "hero",
+                  "card",
+                  "form",
+                  "navigation",
+                  "section",
+                  "modal",
+                  "footer",
+                  "body-content",
+                  "data-display",
+                ],
+                description: "The broad design context",
+              },
+              interactive: {
+                type: "boolean",
+                description:
+                  "Whether the element has interactive states (hover, active, focus). If true, all required state tokens are returned.",
+                default: false,
+              },
+              inverted: {
+                type: "boolean",
+                description:
+                  "Whether the element is in an inverted (dark-on-light / light-on-dark) context.",
+                default: false,
+              },
+            },
+            required: ["cssProperty", "element"],
+          },
+        },
+        {
+          name: "validate_component_tokens",
+          description:
+            "Run a full design intent audit on a component's token file. Scans all token definitions for the named component and validates them against every applicable design rule. Returns a structured report with violations by severity. Use list_components first to discover available component names.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              component: {
+                type: "string",
+                description:
+                  "Component slug to audit (e.g., 'button', 'hero', 'teaser-card'). Use list_components to discover valid names.",
+              },
+              severity: {
+                type: "string",
+                enum: ["all", "critical", "warning", "info"],
+                description: "Minimum severity to report (default: 'all')",
+                default: "all",
+              },
+            },
+            required: ["component"],
+          },
+        },
+        {
+          name: "audit_all_components",
+          description:
+            "Run a design intent audit across all component token files. Returns a summary table with violation counts per component and severity. Use this to get a health overview of the entire design system's token governance.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              category: {
+                type: "string",
+                enum: [
+                  "navigation",
+                  "content",
+                  "blog",
+                  "cards",
+                  "heroes",
+                  "forms",
+                  "layout",
+                  "data-display",
+                  "utility",
+                  "all",
+                ],
+                description: "Filter to a component category (default: 'all')",
+                default: "all",
+              },
+              minSeverity: {
+                type: "string",
+                enum: ["critical", "warning", "info"],
+                description: "Minimum severity to include (default: 'info')",
+                default: "info",
+              },
+            },
           },
         },
       ],
@@ -3213,6 +4400,154 @@ function registerHandlers(srv) {
                   null,
                   2,
                 ),
+              },
+            ],
+          };
+        }
+
+        // ============================================================
+        // DESIGN INTENT & GOVERNANCE TOOL HANDLERS
+        // ============================================================
+
+        case "get_design_rules": {
+          const rules = await loadDesignRules();
+          let result = [...rules];
+
+          // Filter by specific ruleId
+          if (args.ruleId) {
+            const rule = rules.find((r) => r.id === args.ruleId);
+            if (!rule) {
+              throw new Error(
+                `Rule '${args.ruleId}' not found. Available rules: ${rules.map((r) => r.id).join(", ")}`,
+              );
+            }
+            result = [rule];
+          }
+
+          // Filter by category
+          if (args.category) {
+            result = result.filter((r) => r.category === args.category);
+          }
+
+          // Filter by severity
+          if (args.severity) {
+            result = result.filter((r) => r.severity === args.severity);
+          }
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    totalRules: result.length,
+                    filters: {
+                      ruleId: args.ruleId || null,
+                      category: args.category || null,
+                      severity: args.severity || null,
+                    },
+                    rules: result,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        case "get_token_hierarchy": {
+          const hierarchy = await getTokenHierarchy(args.category);
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(hierarchy, null, 2),
+              },
+            ],
+          };
+        }
+
+        case "validate_token_usage": {
+          const validationResult = await validateTokenUsages(
+            args.context,
+            args.designContext || null,
+            args.tokenUsages,
+          );
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(validationResult, null, 2),
+              },
+            ],
+          };
+        }
+
+        case "get_token_for_context": {
+          const recommendation = await recommendTokenForContext(
+            args.cssProperty,
+            args.element,
+            args.designContext || null,
+            {
+              interactive: args.interactive || false,
+              inverted: args.inverted || false,
+            },
+          );
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(recommendation, null, 2),
+              },
+            ],
+          };
+        }
+
+        case "validate_component_tokens": {
+          const auditResult = await auditComponentTokens(args.component);
+
+          // Apply severity filter
+          if (args.severity && args.severity !== "all") {
+            const severityOrder = { critical: 0, warning: 1, info: 2 };
+            const minLevel = severityOrder[args.severity] ?? 2;
+            auditResult.violations = auditResult.violations.filter(
+              (v) => (severityOrder[v.severity] ?? 2) <= minLevel,
+            );
+            auditResult.summary = {
+              ...auditResult.summary,
+              total: auditResult.violations.length,
+              critical: auditResult.violations.filter(
+                (v) => v.severity === "critical",
+              ).length,
+              warning: auditResult.violations.filter(
+                (v) => v.severity === "warning",
+              ).length,
+              info: auditResult.violations.filter((v) => v.severity === "info")
+                .length,
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(auditResult, null, 2),
+              },
+            ],
+          };
+        }
+
+        case "audit_all_components": {
+          const fullAudit = await auditAllComponents(
+            args.category || "all",
+            args.minSeverity || "info",
+          );
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(fullAudit, null, 2),
               },
             ],
           };
